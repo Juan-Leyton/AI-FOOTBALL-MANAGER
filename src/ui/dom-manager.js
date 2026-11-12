@@ -1,10 +1,11 @@
 import { store } from "../core/state.js";
 import { getNextUserEvent, completeRoundWithUserResult, initCompetitions } from "../engine/competitions.js";
-import { startLiveMatch, drawPitch, togglePauseMatch, setTactic, FORMATIONS } from "../engine/match-live.js";
+import { startLiveMatch, drawPitch, togglePauseMatch, setTactic, makeLiveSubstitution, FORMATIONS } from "../engine/match-live.js";
 import { calculateMarketValue, buyPlayer, sellPlayer } from "../engine/transfers.js";
 import { triggerPostMatchEvent, resolveInboxChoice } from "../ai/director.js";
-import { processRoundProgression, advanceSeason } from "../engine/progression.js";
+import { processRoundProgression, advanceSeason, renewPlayerContract } from "../engine/progression.js";
 import { STAFF_CATALOG, getStaffUpgradeCost, upgradeStaff } from "../engine/staff.js";
+import { renderClubBadge } from "./badges.js";
 
 export function initUI() {
   const root = document.getElementById("view-root");
@@ -47,9 +48,12 @@ function render() {
   root.innerHTML = `
     <div class="fm-container">
       <header class="fm-club-banner" style="background: linear-gradient(135deg, ${userClub.colors[0]}, #0f172a);">
-        <div>
-          <h2 style="font-size: 22px; margin-bottom: 4px;">${userClub.name}</h2>
-          <small style="color: #cbd5e1;">Temporada ${state.season || 1} • Jornada ${Math.min(22, leagueRound)}/22 • Presupuesto: <b>${((state.budget || 0) / 1e6).toFixed(2)} M€</b></small>
+        <div style="display: flex; align-items: center; gap: 14px;">
+          ${renderClubBadge(userClub, 48)}
+          <div>
+            <h2 style="font-size: 22px; margin-bottom: 4px;">${userClub.name}</h2>
+            <small style="color: #cbd5e1;">Temporada ${state.season || 1} • Jornada ${Math.min(22, leagueRound)}/22 • Presupuesto: <b>${((state.budget || 0) / 1e6).toFixed(2)} M€</b></small>
+          </div>
         </div>
         <button id="btn-reset" class="fm-btn fm-btn-ghost">Nueva Partida</button>
       </header>
@@ -61,7 +65,7 @@ function render() {
         ${renderTabBtn("staff", "Staff", activeTab, userClub.colors[0])}
         ${renderTabBtn("transfers", "Mercado Fichajes", activeTab, userClub.colors[0])}
         ${renderTabBtn("inbox", `Bandeja IA ${unreadCount > 0 ? `(${unreadCount})` : ""}`, activeTab, userClub.colors[0])}
-        ${renderTabBtn("table", "Liga y Copa", activeTab, userClub.colors[0])}
+        ${renderTabBtn("table", "Competiciones", activeTab, userClub.colors[0])}
       </nav>
 
       <div id="tab-content">
@@ -92,6 +96,8 @@ function renderHomeTab(state) {
   const nextEvent = getNextUserEvent(state);
   const userPlayers = Object.values(state.players || {}).filter(p => p.clubId === state.userClubId);
   const startersCount = userPlayers.filter(p => p.starter).length;
+  const fin = state.lastFinanceReport;
+  const trophies = state.trophies || [];
 
   let matchTitle = "Fin de Temporada";
   let matchCard = `<p><b>¡Temporada Finalizada!</b> Has completado los 22 partidos de Liga.</p>`;
@@ -101,12 +107,16 @@ function renderHomeTab(state) {
     const home = state.clubs[hId];
     const away = state.clubs[aId];
     const isCup = nextEvent.compId === "cup_1";
+    const isCont = nextEvent.compId === "cont_1";
     matchTitle = nextEvent.compName;
 
     matchCard = `
-      ${isCup ? `<div style="display:inline-block; background:#f59e0b; color:#000; font-weight:800; font-size:11px; padding:2px 8px; border-radius:4px; margin-bottom:10px;">ELIMINATORIA DE COPA</div>` : ""}
-      <div class="fm-match-box">
-        <b>${home.name}</b> <span style="color: var(--text-muted); margin: 0 8px;">vs</span> <b>${away.name}</b>
+      ${isCont ? `<div style="display:inline-block; background:#3b82f6; color:#fff; font-weight:800; font-size:11px; padding:2px 8px; border-radius:4px; margin-bottom:10px;">🌍 COPA CONTINENTAL ÉLITE</div>` : ""}
+      ${isCup ? `<div style="display:inline-block; background:#f59e0b; color:#000; font-weight:800; font-size:11px; padding:2px 8px; border-radius:4px; margin-bottom:10px;">🏆 ELIMINATORIA DE COPA</div>` : ""}
+      <div class="fm-match-box" style="display: flex; align-items: center; justify-content: center; gap: 12px;">
+        <span style="display: inline-flex; align-items: center; gap: 6px;">${renderClubBadge(home, 28)} <b>${home.name}</b></span>
+        <span style="color: var(--text-muted);">vs</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px;"><b>${away.name}</b> ${renderClubBadge(away, 28)}</span>
       </div>
       <button id="btn-play-match" data-comp="${nextEvent.compId}" class="fm-btn fm-btn-play">
         ⚽ Jugar Partido en Vivo
@@ -119,14 +129,31 @@ function renderHomeTab(state) {
       <div class="fm-card">
         <h3>${matchTitle}</h3>
         ${matchCard}
+        ${fin ? `
+          <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--panel-border); font-size: 13px;">
+            <div style="color: var(--text-muted); margin-bottom: 4px;">Balance Última Jornada:</div>
+            <div style="display: flex; justify-content: space-between;">
+              <span>Taquilla: <b style="color: var(--success);">+${(fin.ticketRevenue / 1e6).toFixed(2)}M</b></span>
+              <span>Salarios: <b style="color: var(--danger);">-${(fin.weeklyWages / 1e6).toFixed(2)}M</b></span>
+              <span>Neto: <b style="color: ${fin.netBalance >= 0 ? 'var(--success)' : 'var(--danger)'};">${fin.netBalance >= 0 ? '+' : ''}${(fin.netBalance / 1e6).toFixed(2)}M</b></span>
+            </div>
+          </div>
+        ` : ""}
       </div>
 
       <div class="fm-card">
-        <h3>Estado del Club</h3>
+        <h3>Estado y Palmarés</h3>
         <p style="margin-bottom: 8px;">Presupuesto Fichajes: <b style="color: var(--success);">${((state.budget || 0) / 1e6).toFixed(2)} M€</b></p>
         <p style="margin-bottom: 8px;">Confianza Directiva: <b>${state.boardConfidence || 85}%</b></p>
         <p style="margin-bottom: 8px;">Alineación Titular: <b style="color: ${startersCount === 11 ? 'var(--success)' : 'var(--danger)'};">${startersCount} / 11 jugadores</b></p>
-        <p>Estado en Copa: <b>${state.competitions?.cup_1?.championId === state.userClubId ? "🏆 Campeón" : state.competitions?.cup_1?.eliminated ? "❌ Eliminado" : "🟢 En competición"}</b></p>
+        <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--panel-border);">
+          <small style="color: var(--text-muted); display: block; margin-bottom: 6px;">Sala de Trofeos (${trophies.length}):</small>
+          ${trophies.length === 0 ? `<small style="color: #64748b;">Aún no has ganado trofeos oficiales.</small>` : `
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+              ${trophies.map(t => `<span style="background: rgba(245,158,11,0.18); color: #fbbf24; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 700;">🏆 ${t.title} (T${t.season})</span>`).join("")}
+            </div>
+          `}
+        </div>
       </div>
     </div>
     ${renderLeagueTableCard(state)}
@@ -143,7 +170,7 @@ function renderSquadTab(state) {
   return `
     <div class="fm-card">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-        <h3 style="margin: 0;">Plantilla del Primer Equipo (${squad.length} jugadores)</h3>
+        <h3 style="margin: 0;">Plantilla y Contratos (${squad.length} jugadores)</h3>
         <span style="padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: bold; background: ${startersCount === 11 ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}; color: ${startersCount === 11 ? 'var(--success)' : 'var(--danger)'};">
           Titulares: ${startersCount} / 11 ${startersCount !== 11 ? '(Ajusta a 11 exactos)' : '✓'}
         </span>
@@ -154,16 +181,17 @@ function renderSquadTab(state) {
             <th>Rol</th>
             <th>Jugador</th>
             <th>Pos</th>
-            <th>Edad</th>
-            <th>Media</th>
-            <th>Goles</th>
+            <th>OVR</th>
             <th>Físico</th>
-            <th>Venta</th>
+            <th>Contrato</th>
+            <th>Gestión</th>
           </tr>
         </thead>
         <tbody>
           ${squad.map(p => {
             const stamColor = p.stamina > 70 ? 'var(--success)' : p.stamina > 45 ? '#f59e0b' : 'var(--danger)';
+            const years = p.contractYears ?? 2;
+            const contractColor = years <= 1 ? 'var(--danger)' : 'var(--text-muted)';
             const sellVal = Math.round(calculateMarketValue(p, 1) * 0.85);
             return `
               <tr class="${p.starter ? 'highlight-row' : ''}">
@@ -172,13 +200,17 @@ function renderSquadTab(state) {
                     ${p.starter ? 'Titular' : 'Suplente'}
                   </button>
                 </td>
-                <td><b>${p.name}</b></td>
+                <td><b>${p.name}</b> <small style="color: var(--text-muted);">(${p.age}a)</small></td>
                 <td><span class="fm-badge-pos">${p.pos}</span></td>
-                <td>${p.age}</td>
                 <td><b>${p.ovr}</b></td>
-                <td>${p.goals || 0}</td>
                 <td style="color: ${stamColor}; font-weight: 600;">${p.stamina}%</td>
-                <td>
+                <td style="color: ${contractColor}; font-weight: 700;">${years} ${years === 1 ? 'año ⚠️' : 'años'}</td>
+                <td style="display: flex; gap: 6px;">
+                  ${years < 4 ? `
+                    <button class="btn-renew-contract fm-btn fm-btn-primary" data-pid="${p.id}" style="padding: 4px 8px; font-size: 11px;">
+                      ✍️ Renovar
+                    </button>
+                  ` : ""}
                   <button class="btn-sell-player fm-btn fm-btn-ghost" data-pid="${p.id}" style="padding: 4px 8px; font-size: 11px;">
                     Vender (${(sellVal / 1e6).toFixed(1)}M)
                   </button>
@@ -309,16 +341,23 @@ function renderTacticsTab(state) {
 
 function renderTransfersTab(state) {
   const scoutLvl = state.staff?.scout || 1;
+  const posFilter = state.marketPosFilter || "ALL";
   const marketPlayers = Object.values(state.players || {})
-    .filter(p => p.clubId !== state.userClubId)
+    .filter(p => p.clubId !== state.userClubId && (posFilter === "ALL" || p.pos === posFilter))
     .sort((a, b) => b.ovr - a.ovr)
     .slice(0, 25);
 
   return `
     <div class="fm-card">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-        <h3 style="margin: 0;">Mercado de Fichajes Global (Descuento Ojeador: -${(scoutLvl - 1) * 6}%)</h3>
-        <span>Disponible: <b style="color: var(--success);">${((state.budget || 0) / 1e6).toFixed(2)} M€</b></span>
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 14px;">
+        <h3 style="margin: 0;">Mercado Global (Descuento Ojeador: -${(scoutLvl - 1) * 6}%)</h3>
+        <div style="display: flex; gap: 6px;">
+          ${["ALL", "POR", "DEF", "MED", "DEL"].map(pos => `
+            <button class="btn-filter-pos fm-btn ${posFilter === pos ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-pos="${pos}" style="padding: 5px 10px; font-size: 12px;">
+              ${pos === "ALL" ? "Todos" : pos}
+            </button>
+          `).join("")}
+        </div>
       </div>
       <table class="fm-table">
         <thead>
@@ -336,10 +375,11 @@ function renderTransfersTab(state) {
           ${marketPlayers.map(p => {
             const val = calculateMarketValue(p, scoutLvl);
             const canAfford = state.budget >= val;
+            const c = state.clubs[p.clubId];
             return `
               <tr>
                 <td><b>${p.name}</b></td>
-                <td style="color: var(--text-muted);">${state.clubs[p.clubId]?.name || "-"}</td>
+                <td style="color: var(--text-muted);">${renderClubBadge(c, 20)} ${c?.name || "-"}</td>
                 <td><span class="fm-badge-pos">${p.pos}</span></td>
                 <td>${p.age}</td>
                 <td><b>${p.ovr}</b></td>
@@ -393,7 +433,8 @@ function renderInboxTab(state) {
 
 function renderCompetitionsTab(state) {
   return `
-    ${renderCupCard(state)}
+    ${renderCupCard(state, "cont_1", "🌍")}
+    ${renderCupCard(state, "cup_1", "🏆")}
     <div class="fm-grid-2">
       <div>${renderLeagueTableCard(state)}</div>
       <div>${renderTopScorersCard(state)}</div>
@@ -436,14 +477,14 @@ function renderTopScorersCard(state) {
   `;
 }
 
-function renderCupCard(state) {
-  const cup = state.competitions?.cup_1;
+function renderCupCard(state, compKey, icon) {
+  const cup = state.competitions?.[compKey];
   if (!cup) return "";
 
   return `
     <div class="fm-card">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-        <h3 style="margin: 0;">🏆 ${cup.name}</h3>
+        <h3 style="margin: 0;">${icon} ${cup.name}</h3>
         <span style="font-size: 13px; color: #f59e0b; font-weight: 700;">
           ${cup.championId ? `Campeón: ${state.clubs[cup.championId]?.name}` : cup.stageNames[cup.currentStage]}
         </span>
@@ -454,9 +495,9 @@ function renderCupCard(state) {
             <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px; font-weight: 700;">${cup.stageNames[sIdx]}</div>
             ${matches.map(([hId, aId]) => `
               <div style="font-size: 13px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.06);">
-                <span style="${hId === state.userClubId ? 'color: var(--success); font-weight:700;' : ''}">${state.clubs[hId]?.name}</span>
+                <span style="${hId === state.userClubId ? 'color: var(--success); font-weight:700;' : ''}">${state.clubs[hId]?.name || hId}</span>
                 <span style="color: var(--text-muted);"> vs </span>
-                <span style="${aId === state.userClubId ? 'color: var(--success); font-weight:700;' : ''}">${state.clubs[aId]?.name}</span>
+                <span style="${aId === state.userClubId ? 'color: var(--success); font-weight:700;' : ''}">${state.clubs[aId]?.name || aId}</span>
               </div>
             `).join("")}
           </div>
@@ -471,12 +512,12 @@ function renderLeagueTableCard(state) {
   if (!comp || !comp.standings) return "";
 
   const sorted = Object.entries(comp.standings)
-    .map(([clubId, s]) => ({ clubId, name: state.clubs[clubId]?.name || clubId, ...s }))
+    .map(([clubId, s]) => ({ clubId, club: state.clubs[clubId], name: state.clubs[clubId]?.name || clubId, ...s }))
     .sort((a, b) => b.pts - a.pts || (b.gf - b.ga) - (a.gf - a.ga));
 
   return `
     <div class="fm-card">
-      <h3>Clasificación - ${comp.name} (12 Equipos)</h3>
+      <h3>Clasificación - ${comp.name} (Top 4 clasifica a Copa Continental)</h3>
       <table class="fm-table">
         <thead>
           <tr>
@@ -493,8 +534,8 @@ function renderLeagueTableCard(state) {
         <tbody>
           ${sorted.map((t, i) => `
             <tr class="${t.clubId === state.userClubId ? 'highlight-row' : ''}">
-              <td>${i + 1}</td>
-              <td>${t.name}</td>
+              <td style="${i < 4 ? 'color: #60a5fa; font-weight: 800;' : ''}">${i + 1}</td>
+              <td>${renderClubBadge(t.club, 20)} ${t.name}</td>
               <td>${t.pj}</td>
               <td>${t.w}</td>
               <td>${t.d}</td>
@@ -513,19 +554,28 @@ function renderLiveMatchView(state) {
   const m = state.liveMatch;
   const isUserHome = m.homeId === state.userClubId;
   const activeTactic = isUserHome ? (m.homeTactic || "Equilibrado") : (m.awayTactic || "Equilibrado");
+  const userAgents = isUserHome ? m.homeAgents : m.awayAgents;
+  const onPitchIds = new Set(userAgents.map(a => a.playerId));
+  const benchPlayers = Object.values(state.players || {}).filter(p => p.clubId === state.userClubId && !onPitchIds.has(p.id));
+  const homeClub = state.clubs[m.homeId];
+  const awayClub = state.clubs[m.awayId];
 
   return `
-    <div class="fm-container" style="max-width: 840px;">
+    <div class="fm-container" style="max-width: 860px;">
       <div class="fm-card">
         <div style="display: flex; justify-content: space-between; align-items: center; background: #090d16; padding: 16px 24px; border-radius: 10px; margin-bottom: 14px; border: 1px solid var(--panel-border);">
-          <div style="font-size: 18px; font-weight: bold;">${m.homeName}</div>
+          <div style="display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: bold;">
+            ${renderClubBadge(homeClub, 34)} ${m.homeName}
+          </div>
           <div style="text-align: center;">
             <div style="font-size: 30px; font-weight: 800; letter-spacing: 2px;">${m.gh} - ${m.ga}</div>
             <span style="background: ${m.paused ? '#f59e0b' : 'var(--danger)'}; padding: 2px 10px; border-radius: 99px; font-size: 12px; font-weight: bold;">
               ${m.paused ? `PAUSADO (${m.minute}')` : `Min ${m.minute}'`}
             </span>
           </div>
-          <div style="font-size: 18px; font-weight: bold;">${m.awayName}</div>
+          <div style="display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: bold;">
+            ${m.awayName} ${renderClubBadge(awayClub, 34)}
+          </div>
         </div>
 
         ${!m.finished ? `
@@ -537,9 +587,26 @@ function renderLiveMatchView(state) {
               <button class="btn-live-mentality fm-btn ${activeTactic === 'Ofensivo' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-tactic="Ofensivo" style="padding: 5px 10px; font-size: 12px;">🔥 Ofensivo</button>
             </div>
             <button id="btn-pause-match" class="fm-btn fm-btn-ghost" style="padding: 5px 12px; font-size: 12px;">
-              ${m.paused ? '▶ Reanudar' : '⏸ Pausar'}
+              ${m.paused ? '▶ Reanudar' : '⏸ Pausar / Cambios'}
             </button>
           </div>
+
+          ${m.paused ? `
+            <div style="background: #0f172a; border: 1px solid #3b82f6; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+              <div style="font-size: 13px; font-weight: 700; margin-bottom: 8px; color: #60a5fa;">
+                🔄 Realizar Sustitución (${m.subsUsed || 0}/${m.maxSubs || 5} cambios usados)
+              </div>
+              <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+                <select id="sub-out-select" style="background: #1e293b; color: #fff; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--panel-border);">
+                  ${userAgents.map((a, idx) => `<option value="${idx}">Sale: ${a.name} (${a.posType} • Físico ${Math.round(a.stamina ?? 100)}%)</option>`).join("")}
+                </select>
+                <select id="sub-in-select" style="background: #1e293b; color: #fff; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--panel-border);">
+                  ${benchPlayers.map(p => `<option value="${p.id}">Entra: ${p.name} (${p.pos} • OVR ${p.ovr})</option>`).join("")}
+                </select>
+                <button id="btn-confirm-sub" class="fm-btn fm-btn-primary" style="padding: 6px 12px; font-size: 12px;">Confirmar Cambio</button>
+              </div>
+            </div>
+          ` : ""}
         ` : ""}
 
         <div style="text-align: center; margin-bottom: 16px;">
@@ -561,7 +628,7 @@ function renderLiveMatchView(state) {
 }
 
 function renderClubSelection(state) {
-  const clubs = Object.values(state.clubs || {});
+  const clubs = Object.values(state.clubs || {}).filter(c => !c.id.startsWith("ext_"));
   return `
     <div class="fm-container" style="max-width: 680px; margin-top: 36px;">
       <div class="fm-card" style="text-align: center;">
@@ -570,7 +637,7 @@ function renderClubSelection(state) {
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px;">
           ${clubs.map(c => `
             <button class="fm-club-option btn-select-club" data-id="${c.id}">
-              <b>${c.name}</b>
+              <span style="display: inline-flex; align-items: center; gap: 8px;">${renderClubBadge(c, 26)} <b>${c.name}</b></span>
               <span style="color: var(--text-muted);">OVR: ${c.ovr} • ${(c.budget / 1e6).toFixed(0)} M€</span>
             </button>
           `).join("")}
@@ -613,6 +680,13 @@ function bindEvents(state) {
     });
   });
 
+  document.querySelectorAll(".btn-renew-contract").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const res = renewPlayerContract(btn.dataset.pid);
+      if (!res.ok) alert(res.msg);
+    });
+  });
+
   document.querySelectorAll(".btn-sell-player").forEach(btn => {
     btn.addEventListener("click", () => {
       const res = sellPlayer(btn.dataset.pid);
@@ -624,6 +698,12 @@ function bindEvents(state) {
     btn.addEventListener("click", () => {
       const res = upgradeStaff(btn.dataset.key);
       if (!res.ok) alert(res.msg);
+    });
+  });
+
+  document.querySelectorAll(".btn-filter-pos").forEach(btn => {
+    btn.addEventListener("click", () => {
+      store.update(["marketPosFilter"], draft => { draft.marketPosFilter = btn.dataset.pos; });
     });
   });
 
@@ -675,6 +755,14 @@ document.addEventListener("click", e => {
     togglePauseMatch();
   }
 
+  const subBtn = e.target.closest("#btn-confirm-sub");
+  if (subBtn) {
+    const outIdx = Number(document.getElementById("sub-out-select")?.value);
+    const inPid = document.getElementById("sub-in-select")?.value;
+    const res = makeLiveSubstitution(outIdx, inPid);
+    if (!res.ok) alert(res.msg);
+  }
+
   const liveMentBtn = e.target.closest(".btn-live-mentality");
   if (liveMentBtn) {
     const tactic = liveMentBtn.dataset.tactic;
@@ -689,8 +777,9 @@ document.addEventListener("click", e => {
     const m = stateBefore.liveMatch;
     if (m) {
       const compId = stateBefore.activeCompId || "league_1";
+      const wasUserHome = m.homeId === stateBefore.userClubId;
       completeRoundWithUserResult(m.homeId, m.awayId, m.gh, m.ga, compId);
-      processRoundProgression();
+      processRoundProgression(wasUserHome);
       triggerPostMatchEvent();
 
       const stateAfter = store.get();
