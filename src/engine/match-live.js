@@ -1,4 +1,5 @@
 import { store } from "../core/state.js";
+import { playWhistle, playKick, playGoalCheer } from "./audio.js";
 
 let matchInterval = null;
 const MAX_GOALS_PER_TEAM = 5;
@@ -56,6 +57,8 @@ function createAgentFromSlot({ slot, player, outOfPosition }, i, isHome) {
     ovr: effectiveOvr,
     outOfPosition,
     stamina,
+    yellowCards: 0,
+    expelled: false,
     posType: slot.pos,
     baseX: startX,
     baseY: slot.y,
@@ -84,7 +87,13 @@ function getInitialTacticLabel(club) {
   return "Equilibrado";
 }
 
-export function startLiveMatch(homeId, awayId, onFinish) {
+function isInsidePenaltyBox(x, y, defenderIsHome) {
+  const inY = y >= 0.27 && y <= 0.73;
+  if (!inY) return false;
+  return defenderIsHome ? x <= 0.16 : x >= 0.84;
+}
+
+export function startLiveMatch(homeId, awayId, onFinish, isKnockout = false) {
   const state = store.get();
   const homeClub = state.clubs[homeId];
   const awayClub = state.clubs[awayId];
@@ -96,6 +105,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
   const liveData = {
     homeId,
     awayId,
+    isKnockout,
     homeName: homeClub.name,
     awayName: awayClub.name,
     homeColors: homeClub.colors,
@@ -110,7 +120,8 @@ export function startLiveMatch(homeId, awayId, onFinish) {
     maxSubs: 5,
     goalScorers: [],
     goalBanner: null,
-    stats: { homePoss: 1, awayPoss: 1, homeShots: 0, awayShots: 0 },
+    shootout: null,
+    stats: { homePoss: 1, awayPoss: 1, homeShots: 0, awayShots: 0, homeFouls: 0, awayFouls: 0 },
     ball: {
       x: 0.5,
       y: 0.5,
@@ -119,6 +130,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
       ownerTeam: "home",
       ownerId: kickoffPlayer.id,
       isShot: false,
+      isPenalty: false,
       shooter: null,
       stealCooldown: 10
     },
@@ -132,6 +144,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
   };
 
   store.update(["liveMatch"], draft => { draft.liveMatch = liveData; });
+  playWhistle(false);
   if (matchInterval) clearInterval(matchInterval);
 
   matchInterval = setInterval(() => {
@@ -151,13 +164,18 @@ export function startLiveMatch(homeId, awayId, onFinish) {
       return;
     }
 
+    if (m.shootout) {
+      stepPenaltyShootout(m, onFinish);
+      return;
+    }
+
     const ball = { ...m.ball };
     const homeAgents = m.homeAgents.map(a => ({ ...a }));
     const awayAgents = m.awayAgents.map(a => ({ ...a }));
     let { tick, gh, ga, homeTactic, awayTactic } = m;
     const addedEvents = [];
     const newScorers = [...(m.goalScorers || [])];
-    const newStats = { ...(m.stats || { homePoss: 1, awayPoss: 1, homeShots: 0, awayShots: 0 }) };
+    const newStats = { ...(m.stats || { homePoss: 1, awayPoss: 1, homeShots: 0, awayShots: 0, homeFouls: 0, awayFouls: 0 }) };
     let newGoalBanner = null;
     let aiChangedHomeTactic = null;
     let aiChangedAwayTactic = null;
@@ -213,7 +231,8 @@ export function startLiveMatch(homeId, awayId, onFinish) {
           shootAggression: 0.42,
           dribbleRatio: 0.44,
           decisionDelay: Math.max(6, Math.round(12 / tempoFactor)),
-          defLineCap: 0.45
+          defLineCap: 0.45,
+          foulRisk: 0.16
         };
       }
       if (tacticLabel === "Defensivo") {
@@ -225,7 +244,8 @@ export function startLiveMatch(homeId, awayId, onFinish) {
           shootAggression: 0.18,
           dribbleRatio: 0.20,
           decisionDelay: Math.max(8, Math.round(15 / tempoFactor)),
-          defLineCap: 0.22
+          defLineCap: 0.22,
+          foulRisk: 0.11
         };
       }
       return {
@@ -236,7 +256,8 @@ export function startLiveMatch(homeId, awayId, onFinish) {
         shootAggression: 0.28,
         dribbleRatio: 0.33,
         decisionDelay: Math.max(7, Math.round(13 / tempoFactor)),
-        defLineCap: 0.34
+        defLineCap: 0.34,
+        foulRisk: 0.13
       };
     };
 
@@ -246,7 +267,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
     let carrier = null;
     if (ball.ownerTeam && ball.ownerId !== null) {
       const pool = ball.ownerTeam === "home" ? homeAgents : awayAgents;
-      carrier = pool.find(a => a.id === ball.ownerId) || null;
+      carrier = pool.find(a => a.id === ball.ownerId && !a.expelled) || null;
     }
 
     if (carrier) {
@@ -256,6 +277,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
       ball.vx = 0;
       ball.vy = 0;
       ball.isShot = false;
+      ball.isPenalty = false;
     } else {
       ball.x += ball.vx;
       ball.y += ball.vy;
@@ -270,17 +292,18 @@ export function startLiveMatch(homeId, awayId, onFinish) {
       const inGoalMouth = ball.y >= 0.40 && ball.y <= 0.60;
 
       if (ball.x >= 0.985) {
-        if (inGoalMouth && ball.isShot && gh < MAX_GOALS_PER_TEAM) {
+        if (inGoalMouth && ball.isShot && (gh < MAX_GOALS_PER_TEAM || ball.isPenalty)) {
           gh++;
+          playGoalCheer();
           const scorer = ball.shooter;
           const fullName = scorer?.name || "Delantero";
           const sName = fullName.split(" ").pop();
-          addedEvents.push(`⚽ ${currentMin}' - ¡GOOOL de ${sName}! (${m.homeName} ${gh}-${ga} ${m.awayName})`);
+          addedEvents.push(`⚽ ${currentMin}' - ¡GOOOL${ball.isPenalty ? " DE PENAL" : ""} de ${sName}! (${m.homeName} ${gh}-${ga} ${m.awayName})`);
           if (scorer) {
             newScorers.push({ playerId: scorer.playerId, name: fullName, clubId: m.homeId, minute: currentMin });
           }
           newGoalBanner = {
-            scorerName: fullName,
+            scorerName: `${fullName}${ball.isPenalty ? " (Penal)" : ""}`,
             clubName: m.homeName,
             colors: m.homeColors,
             minute: currentMin,
@@ -289,6 +312,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
             maxTimer: 30,
             goalSide: "right"
           };
+          ball.isPenalty = false;
           kickoffReset(ball, homeAgents, awayAgents, "away");
         } else {
           if (ball.isShot && Math.random() < 0.35) {
@@ -297,21 +321,22 @@ export function startLiveMatch(homeId, awayId, onFinish) {
           const awayGk = awayAgents[0];
           ball.x = awayGk.x; ball.y = awayGk.y;
           ball.ownerTeam = "away"; ball.ownerId = awayGk.id;
-          ball.isShot = false; ball.stealCooldown = 20;
+          ball.isShot = false; ball.isPenalty = false; ball.stealCooldown = 20;
           awayGk.decisionTimer = 14;
         }
       } else if (ball.x <= 0.015) {
-        if (inGoalMouth && ball.isShot && ga < MAX_GOALS_PER_TEAM) {
+        if (inGoalMouth && ball.isShot && (ga < MAX_GOALS_PER_TEAM || ball.isPenalty)) {
           ga++;
+          playGoalCheer();
           const scorer = ball.shooter;
           const fullName = scorer?.name || "Delantero";
           const sName = fullName.split(" ").pop();
-          addedEvents.push(`⚽ ${currentMin}' - ¡GOOOL de ${sName}! (${m.homeName} ${gh}-${ga} ${m.awayName})`);
+          addedEvents.push(`⚽ ${currentMin}' - ¡GOOOL${ball.isPenalty ? " DE PENAL" : ""} de ${sName}! (${m.homeName} ${gh}-${ga} ${m.awayName})`);
           if (scorer) {
             newScorers.push({ playerId: scorer.playerId, name: fullName, clubId: m.awayId, minute: currentMin });
           }
           newGoalBanner = {
-            scorerName: fullName,
+            scorerName: `${fullName}${ball.isPenalty ? " (Penal)" : ""}`,
             clubName: m.awayName,
             colors: m.awayColors,
             minute: currentMin,
@@ -320,6 +345,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
             maxTimer: 30,
             goalSide: "left"
           };
+          ball.isPenalty = false;
           kickoffReset(ball, homeAgents, awayAgents, "home");
         } else {
           if (ball.isShot && Math.random() < 0.35) {
@@ -328,11 +354,41 @@ export function startLiveMatch(homeId, awayId, onFinish) {
           const homeGk = homeAgents[0];
           ball.x = homeGk.x; ball.y = homeGk.y;
           ball.ownerTeam = "home"; ball.ownerId = homeGk.id;
-          ball.isShot = false; ball.stealCooldown = 20;
+          ball.isShot = false; ball.isPenalty = false; ball.stealCooldown = 20;
           homeGk.decisionTimer = 14;
         }
       }
     }
+
+    const triggerPenaltyKick = (attackingIsHome) => {
+      const attackers = (attackingIsHome ? homeAgents : awayAgents).filter(a => !a.expelled && a.posType !== "POR");
+      const taker = [...attackers].sort((a, b) => b.ovr - a.ovr)[0] || attackers[0];
+      if (!taker) return;
+
+      const spotX = attackingIsHome ? 0.88 : 0.12;
+      const goalX = attackingIsHome ? 0.985 : 0.015;
+      taker.x = spotX;
+      taker.y = 0.50;
+
+      const targetY = 0.50 + (Math.random() - 0.5) * 0.17;
+      const angle = Math.atan2(targetY - 0.50, goalX - spotX);
+      const shotSpeed = 0.042;
+
+      playKick();
+      ball.ownerTeam = null;
+      ball.ownerId = null;
+      ball.x = spotX;
+      ball.y = 0.50;
+      ball.isShot = true;
+      ball.isPenalty = true;
+      ball.shooter = taker;
+      ball.vx = Math.cos(angle) * shotSpeed;
+      ball.vy = Math.sin(angle) * shotSpeed;
+      ball.stealCooldown = 10;
+
+      if (attackingIsHome) newStats.homeShots += 1;
+      else newStats.awayShots += 1;
+    };
 
     const stepTeam = (agents, isHome, profile) => {
       const teamKey = isHome ? "home" : "away";
@@ -344,13 +400,15 @@ export function startLiveMatch(homeId, awayId, onFinish) {
       let chaser = null;
       let bestDist = Infinity;
       agents.forEach(a => {
-        if (a.posType !== "POR") {
+        if (!a.expelled && a.posType !== "POR") {
           const d = Math.hypot(ball.x - a.x, ball.y - a.y);
           if (d < bestDist) { bestDist = d; chaser = a; }
         }
       });
 
       agents.forEach(a => {
+        if (a.expelled) return;
+
         if (nextTick % 26 === 0) {
           const drain = profile.blockShift > 0.12 ? 0.74 : profile.blockShift < -0.12 ? 0.42 : 0.56;
           a.stamina = Math.max(25, (a.stamina ?? 100) - drain);
@@ -359,7 +417,6 @@ export function startLiveMatch(homeId, awayId, onFinish) {
         const fatigueMult = 0.80 + ((a.stamina ?? 100) / 100) * 0.20;
         const speed = a.speed * fatigueMult;
 
-        // LÓGICA DEL PORTERO: Ataja y despeja largo sin perderla con el delantero
         if (a.posType === "POR") {
           const homeGoalX = isHome ? 0.042 : 0.958;
           const targetY = Math.max(0.40, Math.min(0.60, ball.y));
@@ -368,42 +425,39 @@ export function startLiveMatch(homeId, awayId, onFinish) {
           a.x += a.vx;
           a.y += a.vy;
 
-          // Si el portero tiene el balón en las manos, espera un instante y despeja largo al mediocampo
           if (carrier && carrier.id === a.id && carrier.team === teamKey) {
             a.decisionTimer = (a.decisionTimer || 0) - 1;
             if (a.decisionTimer <= 0) {
-              const dirX = isHome ? 1 : -1;
-              const midfieldTargets = agents.filter(t => t.id !== a.id && (t.posType === "MED" || t.posType === "DEL"));
-              const pool = midfieldTargets.length > 0 ? midfieldTargets : agents.filter(t => t.id !== a.id);
+              const midfieldTargets = agents.filter(t => !t.expelled && t.id !== a.id && (t.posType === "MED" || t.posType === "DEL"));
+              const pool = midfieldTargets.length > 0 ? midfieldTargets : agents.filter(t => !t.expelled && t.id !== a.id);
               const target = pool[Math.floor(Math.random() * pool.length)];
 
               if (target) {
                 const kickX = isHome ? Math.max(0.38, target.x) : Math.min(0.62, target.x);
                 const angle = Math.atan2(target.y - a.y, kickX - a.x);
-                const clearSpeed = 0.032;
-
                 ball.ownerTeam = null;
                 ball.ownerId = null;
                 ball.isShot = false;
-                ball.vx = Math.cos(angle) * clearSpeed;
-                ball.vy = Math.sin(angle) * clearSpeed;
+                ball.vx = Math.cos(angle) * 0.032;
+                ball.vy = Math.sin(angle) * 0.032;
                 ball.stealCooldown = 8;
               }
             }
             return;
           }
 
-          // Atajada cuando viene el balón hacia su arco
           if (!carrier && Math.hypot(ball.x - a.x, ball.y - a.y) < 0.038) {
             const rivalGoals = isHome ? ga : gh;
-            const saveChance = rivalGoals >= MAX_GOALS_PER_TEAM ? 1.0 : (0.72 + ((a.ovr - 75) * 0.011));
+            const baseSave = ball.isPenalty ? 0.24 : (0.72 + ((a.ovr - 75) * 0.011));
+            const saveChance = (!ball.isPenalty && rivalGoals >= MAX_GOALS_PER_TEAM) ? 1.0 : baseSave;
             if (!ball.isShot || Math.random() < Math.min(0.90, saveChance)) {
-              if (ball.isShot && Math.random() < 0.40) {
-                addedEvents.push(`🧤 ${currentMin}' - ¡Gran parada de ${a.name.split(" ").pop()}!`);
+              if (ball.isShot && Math.random() < (ball.isPenalty ? 0.95 : 0.40)) {
+                addedEvents.push(`🧤 ${currentMin}' - ${ball.isPenalty ? "¡ATAJÓ EL PENAL " : "¡Gran parada de "}${a.name.split(" ").pop()}!`);
               }
               ball.ownerTeam = teamKey;
               ball.ownerId = a.id;
               ball.isShot = false;
+              ball.isPenalty = false;
               ball.stealCooldown = 25;
               a.decisionTimer = 14;
             }
@@ -427,7 +481,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
           a.decisionTimer = (a.decisionTimer || 0) - 1;
           if (a.decisionTimer > 0 && !defenderHold) return;
 
-          const nearestEnemyDist = enemyAgents.reduce((min, e) => Math.min(min, Math.hypot(e.x - a.x, e.y - a.y)), 99);
+          const nearestEnemyDist = enemyAgents.reduce((min, e) => e.expelled ? min : Math.min(min, Math.hypot(e.x - a.x, e.y - a.y)), 99);
           const underPressure = nearestEnemyDist < 0.085;
 
           if (distGoal <= profile.shootRange && Math.abs(a.y - 0.5) < 0.27) {
@@ -437,6 +491,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
               const angle = Math.atan2(targetY - a.y, goalX - a.x);
               const shotSpeed = 0.037 + ((a.ovr - 70) * 0.0005);
 
+              playKick();
               ball.ownerTeam = null;
               ball.ownerId = null;
               ball.isShot = true;
@@ -454,12 +509,14 @@ export function startLiveMatch(homeId, awayId, onFinish) {
           if (defenderHold || underPressure || Math.random() > profile.dribbleRatio) {
             const maxPassDist = profile.blockShift < -0.08 ? 0.58 : 0.40;
             const forwardOptions = agents.filter(t =>
+              !t.expelled &&
               t.id !== a.id &&
               t.posType !== "POR" &&
               (isHome ? t.x > a.x + 0.02 : t.x < a.x - 0.02) &&
               Math.hypot(t.x - a.x, t.y - a.y) < maxPassDist
             );
             const safeOptions = agents.filter(t =>
+              !t.expelled &&
               t.id !== a.id &&
               t.posType !== "POR" &&
               Math.hypot(t.x - a.x, t.y - a.y) < 0.34
@@ -502,7 +559,6 @@ export function startLiveMatch(homeId, awayId, onFinish) {
           return;
         }
 
-        // PROHIBIDO ENTRARLE AL PORTERO: Solo presiona si el portador NO es el arquero
         if (carrier && !carrierIsGK && !teamHasBall && a === chaser && distBall < profile.pressRange) {
           a.vx = ((carrier.x - a.x) / (distBall || 1)) * speed * 1.12;
           a.vy = ((carrier.y - a.y) / (distBall || 1)) * speed * 1.12;
@@ -510,6 +566,39 @@ export function startLiveMatch(homeId, awayId, onFinish) {
           a.y += a.vy;
 
           if (Math.hypot(carrier.x - a.x, carrier.y - a.y) < 0.024 && ball.stealCooldown === 0) {
+            const foulRoll = Math.random();
+            if (foulRoll < profile.foulRisk) {
+              playWhistle(false);
+              if (isHome) newStats.homeFouls += 1;
+              else newStats.awayFouls += 1;
+
+              const shortName = a.name.split(" ").pop();
+              const inBox = isInsidePenaltyBox(carrier.x, carrier.y, isHome);
+
+              const cardRoll = Math.random();
+              if (cardRoll < 0.04) {
+                a.expelled = true;
+                addedEvents.push(`🟥 ${currentMin}' - ¡ROJA DIRECTA para ${shortName}!`);
+              } else if (cardRoll < 0.34) {
+                a.yellowCards = (a.yellowCards || 0) + 1;
+                if (a.yellowCards >= 2) {
+                  a.expelled = true;
+                  addedEvents.push(`🟨🟥 ${currentMin}' - ¡Segunda amarilla y EXPULSIÓN para ${shortName}!`);
+                } else {
+                  addedEvents.push(`🟨 ${currentMin}' - Tarjeta amarilla para ${shortName}`);
+                }
+              }
+
+              if (inBox) {
+                addedEvents.push(`🚨 ${currentMin}' - ¡PENAL cometido por ${shortName}!`);
+                triggerPenaltyKick(!isHome);
+              } else {
+                carrier.decisionTimer = 10;
+                ball.stealCooldown = 18;
+              }
+              return;
+            }
+
             const tackleProb = 0.24 + ((a.ovr - carrier.ovr) * 0.012);
             if (Math.random() < Math.max(0.10, Math.min(0.46, tackleProb))) {
               ball.ownerTeam = teamKey;
@@ -538,7 +627,6 @@ export function startLiveMatch(homeId, awayId, onFinish) {
           else rawTargetX = Math.max(1 - profile.defLineCap, rawTargetX);
         }
 
-        // Si el portero rival tiene el balón, los atacantes retroceden fuera del área
         if (carrierIsGK && !teamHasBall) {
           if (isHome) rawTargetX = Math.min(0.76, rawTargetX);
           else rawTargetX = Math.max(0.24, rawTargetX);
@@ -557,10 +645,28 @@ export function startLiveMatch(homeId, awayId, onFinish) {
     stepTeam(homeAgents, true, homeProfile);
     stepTeam(awayAgents, false, awayProfile);
 
-    const isFinished = currentMin >= 90;
-    if (isFinished) {
-      addedEvents.push(`🏁 90' - Final del encuentro: ${m.homeName} ${gh} - ${ga} ${m.awayName}`);
-      clearInterval(matchInterval);
+    const isTimeUp = currentMin >= 90;
+    let isFinished = false;
+    let startedShootout = null;
+
+    if (isTimeUp) {
+      if (m.isKnockout && gh === ga) {
+        playWhistle(false);
+        startedShootout = {
+          turn: "home",
+          kicksTaken: 0,
+          homeScore: 0,
+          awayScore: 0,
+          history: [],
+          waitTicks: 10
+        };
+        addedEvents.push(`🎯 90' - ¡Empate en Copa! Nos vamos a la TANDA DE PENALES`);
+      } else {
+        isFinished = true;
+        playWhistle(true);
+        addedEvents.push(`🏁 90' - Final del encuentro: ${m.homeName} ${gh} - ${ga} ${m.awayName}`);
+        clearInterval(matchInterval);
+      }
     }
 
     store.update(["liveMatch"], draft => {
@@ -574,6 +680,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
       if (aiChangedHomeTactic) lm.homeTactic = aiChangedHomeTactic;
       if (aiChangedAwayTactic) lm.awayTactic = aiChangedAwayTactic;
       if (newGoalBanner) lm.goalBanner = newGoalBanner;
+      if (startedShootout) lm.shootout = startedShootout;
       lm.stats = newStats;
       lm.ball = ball;
       lm.homeAgents = homeAgents;
@@ -589,12 +696,86 @@ export function startLiveMatch(homeId, awayId, onFinish) {
   }, 60);
 }
 
-function kickoffReset(ball, homeAgents, awayAgents, kickoffTeam) {
-  (homeAgents || []).forEach(a => { a.x = a.baseX; a.y = a.baseY; a.vx = 0; a.vy = 0; });
-  (awayAgents || []).forEach(a => { a.x = a.baseX; a.y = a.baseY; a.vx = 0; a.vy = 0; });
+function stepPenaltyShootout(m, onFinish) {
+  const so = { ...m.shootout, history: [...m.shootout.history] };
+  if (so.waitTicks > 0) {
+    so.waitTicks -= 1;
+    store.update(["liveMatch"], draft => { if (draft.liveMatch) draft.liveMatch.shootout = so; });
+    return;
+  }
 
-  const takers = kickoffTeam === "home" ? homeAgents : awayAgents;
-  const taker = takers[9] || takers[6] || takers[1];
+  const isHomeTurn = so.turn === "home";
+  const shooters = (isHomeTurn ? m.homeAgents : m.awayAgents).filter(a => !a.expelled);
+  const gk = (isHomeTurn ? m.awayAgents[0] : m.homeAgents[0]);
+  const shooterIdx = Math.floor(so.kicksTaken / 2) % shooters.length;
+  const shooter = shooters[shooterIdx] || shooters[0];
+
+  playKick();
+  const prob = Math.max(0.55, Math.min(0.88, 0.75 + ((shooter?.ovr || 78) - (gk?.ovr || 78)) * 0.008));
+  const scored = Math.random() < prob;
+
+  if (scored) {
+    playGoalCheer();
+    if (isHomeTurn) so.homeScore += 1;
+    else so.awayScore += 1;
+  }
+
+  const sName = shooter?.name?.split(" ").pop() || "Lanzador";
+  const evText = scored
+    ? `⚽ Penal (${isHomeTurn ? m.homeName : m.awayName}): ¡Gol de ${sName}! (${so.homeScore}-${so.awayScore})`
+    : `❌ Penal (${isHomeTurn ? m.homeName : m.awayName}): ¡Falló ${sName}! (${so.homeScore}-${so.awayScore})`;
+
+  so.history.push({ team: so.turn, scored });
+  so.kicksTaken += 1;
+  so.turn = isHomeTurn ? "away" : "home";
+  so.waitTicks = 14;
+
+  const homeKicks = Math.ceil(so.kicksTaken / 2);
+  const awayKicks = Math.floor(so.kicksTaken / 2);
+  let winner = null;
+
+  if (homeKicks <= 5 && awayKicks <= 5) {
+    const homeRem = 5 - homeKicks;
+    const awayRem = 5 - awayKicks;
+    if (so.homeScore > so.awayScore + awayRem) winner = "home";
+    else if (so.awayScore > so.homeScore + homeRem) winner = "away";
+  } else if (homeKicks === awayKicks && so.homeScore !== so.awayScore) {
+    winner = so.homeScore > so.awayScore ? "home" : "away";
+  }
+
+  if (winner) {
+    const finalGh = winner === "home" ? m.gh + 1 : m.gh;
+    const finalGa = winner === "away" ? m.ga + 1 : m.ga;
+    const winName = winner === "home" ? m.homeName : m.awayName;
+    playWhistle(true);
+    clearInterval(matchInterval);
+
+    store.update(["liveMatch"], draft => {
+      const lm = draft.liveMatch;
+      if (!lm) return;
+      lm.shootout = so;
+      lm.gh = finalGh;
+      lm.ga = finalGa;
+      lm.finished = true;
+      lm.events = [`🏆 ¡${winName} gana la tanda de penales (${so.homeScore}-${so.awayScore})!`, evText, ...lm.events].slice(0, 7);
+    });
+    if (onFinish) onFinish(finalGh, finalGa);
+  } else {
+    store.update(["liveMatch"], draft => {
+      const lm = draft.liveMatch;
+      if (!lm) return;
+      lm.shootout = so;
+      lm.events = [evText, ...lm.events].slice(0, 7);
+    });
+  }
+}
+
+function kickoffReset(ball, homeAgents, awayAgents, kickoffTeam) {
+  (homeAgents || []).forEach(a => { if (!a.expelled) { a.x = a.baseX; a.y = a.baseY; a.vx = 0; a.vy = 0; } });
+  (awayAgents || []).forEach(a => { if (!a.expelled) { a.x = a.baseX; a.y = a.baseY; a.vx = 0; a.vy = 0; } });
+
+  const takers = (kickoffTeam === "home" ? homeAgents : awayAgents).filter(a => !a.expelled);
+  const taker = takers.find(a => a.posType === "DEL") || takers[1] || takers[0];
   taker.x = 0.5;
   taker.y = 0.5;
   taker.decisionTimer = 12;
@@ -606,6 +787,7 @@ function kickoffReset(ball, homeAgents, awayAgents, kickoffTeam) {
   ball.ownerTeam = kickoffTeam;
   ball.ownerId = taker.id;
   ball.isShot = false;
+  ball.isPenalty = false;
   ball.shooter = null;
   ball.stealCooldown = 14;
 }
@@ -622,6 +804,7 @@ export function makeLiveSubstitution(outAgentIndex, inPlayerId) {
   const inPlayer = state.players[inPlayerId];
 
   if (!outAgent || !inPlayer) return { ok: false, msg: "Selección inválida." };
+  if (outAgent.expelled) return { ok: false, msg: "No puedes sustituir a un jugador expulsado con tarjeta roja." };
 
   const outOfPos = inPlayer.pos !== outAgent.posType;
   const effOvr = Math.max(55, inPlayer.ovr + (outOfPos ? -12 : 0));
@@ -633,6 +816,8 @@ export function makeLiveSubstitution(outAgentIndex, inPlayerId) {
     ovr: effOvr,
     outOfPosition: outOfPos,
     stamina: inPlayer.stamina ?? 100,
+    yellowCards: 0,
+    expelled: false,
     speed: (0.0056 + Math.random() * 0.0010) * (0.90 + ((effOvr - 75) * 0.010))
   };
 
@@ -732,6 +917,7 @@ export function drawPitch(canvas, liveMatch) {
   const drawTeamAgents = (agents, colors, isHome) => {
     if (!Array.isArray(agents)) return;
     agents.forEach(a => {
+      if (a.expelled) return;
       const px = padX + a.x * fieldW;
       const py = padY + a.y * fieldH;
       const isGK = a.posType === "POR";
@@ -746,6 +932,14 @@ export function drawPitch(canvas, liveMatch) {
       ctx.strokeStyle = stroke;
       ctx.lineWidth = 2.2;
       ctx.stroke();
+
+      if ((a.yellowCards || 0) > 0) {
+        ctx.fillStyle = "#facc15";
+        ctx.fillRect(px + 5, py - 11, 5, 7);
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 0.8;
+        ctx.strokeRect(px + 5, py - 11, 5, 7);
+      }
 
       if (a.name) {
         ctx.fillStyle = "rgba(255,255,255,0.9)";

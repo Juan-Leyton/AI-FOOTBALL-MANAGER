@@ -6,6 +6,8 @@ import { triggerPostMatchEvent, resolveInboxChoice } from "../ai/director.js";
 import { processRoundProgression, advanceSeason, renewPlayerContract, recordMatchInCareer } from "../engine/progression.js";
 import { STAFF_CATALOG, getStaffUpgradeCost, upgradeStaff } from "../engine/staff.js";
 import { TRAINING_PLANS, setTrainingPlan } from "../engine/training.js";
+import { getPlayerAttributes, promoteYouthProspect } from "../engine/academy.js";
+import { toggleMute, isAudioMuted } from "../engine/audio.js";
 import { renderClubBadge } from "./badges.js";
 
 let lastLiveLayoutKey = "";
@@ -44,9 +46,8 @@ function render() {
     const m = state.liveMatch;
     const isUserHome = m.homeId === state.userClubId;
     const activeTactic = isUserHome ? (m.homeTactic || "Equilibrado") : (m.awayTactic || "Equilibrado");
-    const layoutKey = `${m.homeId}_${m.awayId}_${m.paused}_${m.finished}_${activeTactic}_${m.subsUsed || 0}`;
+    const layoutKey = `${m.homeId}_${m.awayId}_${m.paused}_${m.finished}_${activeTactic}_${m.subsUsed || 0}_${Boolean(m.shootout)}`;
 
-    // Solo reconstruye el DOM cuando cambia el estado de controles (pausa, táctica, cambios o fin), NO cada 50ms
     if (layoutKey !== lastLiveLayoutKey || !document.getElementById("pitch-canvas")) {
       lastLiveLayoutKey = layoutKey;
       root.innerHTML = renderLiveMatchView(state);
@@ -82,7 +83,7 @@ function render() {
         ${renderTabBtn("home", "Inicio", activeTab, userClub.colors[0])}
         ${renderTabBtn("squad", "Plantilla", activeTab, userClub.colors[0])}
         ${renderTabBtn("tactics", "Tácticas", activeTab, userClub.colors[0])}
-        ${renderTabBtn("staff", "Staff y Entreno", activeTab, userClub.colors[0])}
+        ${renderTabBtn("staff", "Staff y Cantera", activeTab, userClub.colors[0])}
         ${renderTabBtn("transfers", "Mercado Fichajes", activeTab, userClub.colors[0])}
         ${renderTabBtn("inbox", `Bandeja IA ${unreadCount > 0 ? `(${unreadCount})` : ""}`, activeTab, userClub.colors[0])}
         ${renderTabBtn("table", "Competiciones", activeTab, userClub.colors[0])}
@@ -109,10 +110,18 @@ function updateLiveMatchDynamicParts(state) {
   const isUserHome = m.homeId === state.userClubId;
 
   const scoreEl = document.getElementById("live-score-text");
-  if (scoreEl) scoreEl.textContent = `${m.gh} - ${m.ga}`;
+  if (scoreEl) {
+    scoreEl.textContent = m.shootout
+      ? `${m.gh} - ${m.ga} (Pen: ${m.shootout.homeScore}-${m.shootout.awayScore})`
+      : `${m.gh} - ${m.ga}`;
+  }
 
   const minEl = document.getElementById("live-minute-badge");
-  if (minEl) minEl.textContent = m.paused ? `PAUSADO (${m.minute}')` : `Min ${m.minute}'`;
+  if (minEl) {
+    minEl.textContent = m.shootout
+      ? "TANDA DE PENALES"
+      : m.paused ? `PAUSADO (${m.minute}')` : `Min ${m.minute}'`;
+  }
 
   const totalPoss = (m.stats?.homePoss || 1) + (m.stats?.awayPoss || 1);
   const homePossPct = Math.round(((m.stats?.homePoss || 1) / totalPoss) * 100);
@@ -120,12 +129,12 @@ function updateLiveMatchDynamicParts(state) {
 
   const homeStatsEl = document.getElementById("live-home-stats");
   if (homeStatsEl) {
-    homeStatsEl.innerHTML = `Posesión: <b style="color:#fff;">${homePossPct}%</b> • Tiros: <b style="color:#fff;">${m.stats?.homeShots || 0}</b>`;
+    homeStatsEl.innerHTML = `Posesión: <b style="color:#fff;">${homePossPct}%</b> • Tiros: <b style="color:#fff;">${m.stats?.homeShots || 0}</b> • Faltas: <b style="color:#fff;">${m.stats?.homeFouls || 0}</b>`;
   }
 
   const awayStatsEl = document.getElementById("live-away-stats");
   if (awayStatsEl) {
-    awayStatsEl.innerHTML = `Posesión: <b style="color:#fff;">${awayPossPct}%</b> • Tiros: <b style="color:#fff;">${m.stats?.awayShots || 0}</b>`;
+    awayStatsEl.innerHTML = `Posesión: <b style="color:#fff;">${awayPossPct}%</b> • Tiros: <b style="color:#fff;">${m.stats?.awayShots || 0}</b> • Faltas: <b style="color:#fff;">${m.stats?.awayFouls || 0}</b>`;
   }
 
   const rivalTacticEl = document.getElementById("live-rival-tactic");
@@ -240,7 +249,7 @@ function renderSquadTab(state) {
         <thead>
           <tr>
             <th>Rol</th>
-            <th>Jugador</th>
+            <th>Jugador y Atributos</th>
             <th>Pos</th>
             <th>OVR</th>
             <th>Moral</th>
@@ -251,6 +260,7 @@ function renderSquadTab(state) {
         </thead>
         <tbody>
           ${squad.map(p => {
+            const attrs = getPlayerAttributes(p);
             const stamColor = p.stamina > 70 ? 'var(--success)' : p.stamina > 45 ? '#f59e0b' : 'var(--danger)';
             const morale = p.morale ?? 85;
             const moraleColor = morale >= 85 ? 'var(--success)' : morale < 55 ? 'var(--danger)' : '#cbd5e1';
@@ -264,7 +274,12 @@ function renderSquadTab(state) {
                     ${p.starter ? 'Titular' : 'Suplente'}
                   </button>
                 </td>
-                <td><b>${p.name}</b> <small style="color: var(--text-muted);">(${p.age}a)</small></td>
+                <td>
+                  <b>${p.name}</b> ${p.isYouth ? `<span style="background:rgba(59,130,246,0.25); color:#60a5fa; font-size:10px; padding:1px 5px; border-radius:4px; font-weight:700;">Cantera</span>` : ""} <small style="color: var(--text-muted);">(${p.age}a)</small>
+                  <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                    RIT <b style="color:#cbd5e1;">${attrs.RIT}</b> • TIR <b style="color:#cbd5e1;">${attrs.TIR}</b> • PAS <b style="color:#cbd5e1;">${attrs.PAS}</b> • DEF <b style="color:#cbd5e1;">${attrs.DEF}</b>
+                  </div>
+                </td>
                 <td><span class="fm-badge-pos">${p.pos}</span></td>
                 <td><b>${p.ovr}</b></td>
                 <td style="color: ${moraleColor}; font-weight: 600;">${morale}%</td>
@@ -292,8 +307,22 @@ function renderSquadTab(state) {
 function renderStaffTab(state) {
   const staff = state.staff || { fitness: 1, scout: 1, youth: 1 };
   const activePlan = state.trainingPlan || "balanced";
+  const youthPromotedThisSeason = (state.lastYouthSeason || 0) >= (state.season || 1);
 
   return `
+    <div class="fm-card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <h3 style="margin: 0;">🎓 Cantera y Promoción de Juveniles</h3>
+        <span style="font-size: 12px; color: #60a5fa; font-weight: 700;">Academia Nvl ${staff.youth || 1}</span>
+      </div>
+      <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 14px;">
+        Otea y sube al primer equipo a la mejor promesa sub-18 de tu cantera esta temporada (Coste: 1.50 M€).
+      </p>
+      <button id="btn-promote-youth" class="fm-btn fm-btn-primary" ${youthPromotedThisSeason ? 'disabled style="background:#334155; opacity:0.5; cursor:not-allowed;"' : ''}>
+        ${youthPromotedThisSeason ? '✓ Promesa de esta temporada ya promovida' : '🌟 Promover Juvenil al Primer Equipo (1.50 M€)'}
+      </button>
+    </div>
+
     <div class="fm-card">
       <h3>Plan de Entrenamiento Semanal</h3>
       <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 14px;">Selecciona el enfoque de trabajo de esta semana para moldear el desarrollo y físico de tu plantilla:</p>
@@ -450,7 +479,7 @@ function renderTransfersTab(state) {
       <table class="fm-table">
         <thead>
           <tr>
-            <th>Jugador</th>
+            <th>Jugador y Atributos</th>
             <th>Club Actual</th>
             <th>Pos</th>
             <th>Edad</th>
@@ -461,12 +490,18 @@ function renderTransfersTab(state) {
         </thead>
         <tbody>
           ${marketPlayers.map(p => {
+            const attrs = getPlayerAttributes(p);
             const val = calculateMarketValue(p, scoutLvl);
             const canAfford = state.budget >= val;
             const c = state.clubs[p.clubId];
             return `
               <tr>
-                <td><b>${p.name}</b></td>
+                <td>
+                  <b>${p.name}</b>
+                  <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                    RIT <b style="color:#cbd5e1;">${attrs.RIT}</b> • TIR <b style="color:#cbd5e1;">${attrs.TIR}</b> • PAS <b style="color:#cbd5e1;">${attrs.PAS}</b> • DEF <b style="color:#cbd5e1;">${attrs.DEF}</b>
+                  </div>
+                </td>
                 <td style="color: var(--text-muted);">${renderClubBadge(c, 20)} ${c?.name || "-"}</td>
                 <td><span class="fm-badge-pos">${p.pos}</span></td>
                 <td>${p.age}</td>
@@ -660,9 +695,11 @@ function renderLiveMatchView(state) {
             ${renderClubBadge(homeClub, 34)} ${m.homeName}
           </div>
           <div style="text-align: center;">
-            <div id="live-score-text" style="font-size: 30px; font-weight: 800; letter-spacing: 2px;">${m.gh} - ${m.ga}</div>
-            <span id="live-minute-badge" style="background: ${m.paused ? '#f59e0b' : 'var(--danger)'}; padding: 2px 10px; border-radius: 99px; font-size: 12px; font-weight: bold;">
-              ${m.paused ? `PAUSADO (${m.minute}')` : `Min ${m.minute}'`}
+            <div id="live-score-text" style="font-size: 30px; font-weight: 800; letter-spacing: 2px;">
+              ${m.shootout ? `${m.gh} - ${m.ga} (Pen: ${m.shootout.homeScore}-${m.shootout.awayScore})` : `${m.gh} - ${m.ga}`}
+            </div>
+            <span id="live-minute-badge" style="background: ${m.shootout ? '#3b82f6' : m.paused ? '#f59e0b' : 'var(--danger)'}; padding: 2px 10px; border-radius: 99px; font-size: 12px; font-weight: bold;">
+              ${m.shootout ? "TANDA DE PENALES" : m.paused ? `PAUSADO (${m.minute}')` : `Min ${m.minute}'`}
             </span>
           </div>
           <div style="display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: bold;">
@@ -671,9 +708,9 @@ function renderLiveMatchView(state) {
         </div>
 
         <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-bottom: 12px; padding: 0 6px;">
-          <span id="live-home-stats">Posesión: <b style="color:#fff;">${homePossPct}%</b> • Tiros: <b style="color:#fff;">${m.stats?.homeShots || 0}</b></span>
+          <span id="live-home-stats">Posesión: <b style="color:#fff;">${homePossPct}%</b> • Tiros: <b style="color:#fff;">${m.stats?.homeShots || 0}</b> • Faltas: <b style="color:#fff;">${m.stats?.homeFouls || 0}</b></span>
           <span>Tu Táctica: <b style="color:#60a5fa;">${activeTactic}</b> | Rival: <b id="live-rival-tactic" style="color:#f59e0b;">${isUserHome ? m.awayTactic : m.homeTactic}</b></span>
-          <span id="live-away-stats">Posesión: <b style="color:#fff;">${awayPossPct}%</b> • Tiros: <b style="color:#fff;">${m.stats?.awayShots || 0}</b></span>
+          <span id="live-away-stats">Posesión: <b style="color:#fff;">${awayPossPct}%</b> • Tiros: <b style="color:#fff;">${m.stats?.awayShots || 0}</b> • Faltas: <b style="color:#fff;">${m.stats?.awayFouls || 0}</b></span>
         </div>
 
         ${!m.finished ? `
@@ -684,9 +721,14 @@ function renderLiveMatchView(state) {
               <button type="button" class="btn-live-mentality fm-btn ${activeTactic === 'Equilibrado' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-tactic="Equilibrado" style="padding: 5px 10px; font-size: 12px;">⚖️ Equilibrado</button>
               <button type="button" class="btn-live-mentality fm-btn ${activeTactic === 'Ofensivo' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-tactic="Ofensivo" style="padding: 5px 10px; font-size: 12px;">🔥 Ofensivo</button>
             </div>
-            <button type="button" id="btn-pause-match" class="fm-btn fm-btn-ghost" style="padding: 5px 12px; font-size: 12px;">
-              ${m.paused ? '▶ Reanudar' : '⏸ Pausar / Cambios'}
-            </button>
+            <div style="display: flex; gap: 6px;">
+              <button type="button" id="btn-toggle-audio" class="fm-btn fm-btn-ghost" style="padding: 5px 10px; font-size: 12px;">
+                ${isAudioMuted() ? '🔇' : '🔊'}
+              </button>
+              <button type="button" id="btn-pause-match" class="fm-btn fm-btn-ghost" style="padding: 5px 12px; font-size: 12px;">
+                ${m.paused ? '▶ Reanudar' : '⏸ Pausar / Cambios'}
+              </button>
+            </div>
           </div>
 
           ${m.paused ? `
@@ -696,7 +738,7 @@ function renderLiveMatchView(state) {
               </div>
               <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
                 <select id="sub-out-select" style="background: #1e293b; color: #fff; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--panel-border);">
-                  ${userAgents.map((a, idx) => `<option value="${idx}">Sale: ${a.name} (${a.posType} • Físico ${Math.round(a.stamina ?? 100)}%)</option>`).join("")}
+                  ${userAgents.map((a, idx) => `<option value="${idx}" ${a.expelled ? 'disabled' : ''}>${a.expelled ? '🟥 EXPULSADO: ' : 'Sale: '}${a.name} (${a.posType} • Físico ${Math.round(a.stamina ?? 100)}%)</option>`).join("")}
                 </select>
                 <select id="sub-in-select" style="background: #1e293b; color: #fff; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--panel-border);">
                   ${benchPlayers.map(p => `<option value="${p.id}">Entra: ${p.name} (${p.pos} • OVR ${p.ovr})</option>`).join("")}
@@ -760,13 +802,19 @@ function bindEvents(state) {
   document.getElementById("btn-play-match")?.addEventListener("click", () => {
     const nextEvent = getNextUserEvent(state);
     if (nextEvent) {
+      const isKnockout = nextEvent.compId === "cup_1" || nextEvent.compId === "cont_1";
       store.update(["activeCompId"], draft => { draft.activeCompId = nextEvent.compId; });
-      startLiveMatch(nextEvent.match[0], nextEvent.match[1]);
+      startLiveMatch(nextEvent.match[0], nextEvent.match[1], null, isKnockout);
     }
   });
 
   document.getElementById("btn-gen-event")?.addEventListener("click", () => {
     triggerPostMatchEvent();
+  });
+
+  document.getElementById("btn-promote-youth")?.addEventListener("click", () => {
+    const res = promoteYouthProspect();
+    if (!res.ok) alert(res.msg);
   });
 
   document.querySelectorAll(".btn-toggle-starter").forEach(btn => {
@@ -887,6 +935,12 @@ document.addEventListener("click", e => {
       draft.userClubId = clubId;
       draft.budget = draft.clubs[clubId]?.budget || 50000000;
     });
+  }
+
+  const audioBtn = e.target.closest("#btn-toggle-audio");
+  if (audioBtn) {
+    const muted = toggleMute();
+    audioBtn.textContent = muted ? "🔇" : "🔊";
   }
 
   const pauseBtn = e.target.closest("#btn-pause-match");
