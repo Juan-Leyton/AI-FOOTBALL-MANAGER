@@ -10,20 +10,32 @@ import { getPlayerAttributes, promoteYouthProspect } from "../engine/academy.js"
 import { toggleMute, isAudioMuted } from "../engine/audio.js";
 import { getClubStadium, calculateMatchAttendance } from "../engine/stadium.js";
 import { isPlayerUnavailable, getPlayerStatusBadge, applyPostMatchMedicalAndCards, advanceMedicalRecovery } from "../engine/medical.js";
+import { LEAGUES_CATALOG, buildWorldDatabase } from "../data/world-database.js";
 import { renderClubBadge } from "./badges.js";
 
 let lastLiveLayoutKey = "";
+let selectedPreviewLeague = "esp_1";
+let selectedStandingsView = "league_1";
 
 export function initUI() {
   const root = document.getElementById("view-root");
   if (!root) return;
 
   const s = store.get();
-  if (s.liveMatch || (s.clubs && (!s.competitions?.league_1?.schedule?.length))) {
+  if (!s.clubs || Object.keys(s.clubs).length < 20) {
+    const world = buildWorldDatabase();
+    store.update(["clubs", "players", "liveMatch", "competitions", "activeCompId"], draft => {
+      draft.clubs = world.clubs;
+      draft.players = world.players;
+      draft.liveMatch = null;
+      draft.competitions = initCompetitions(world.clubs, draft.userClubId);
+      draft.activeCompId = "league_1";
+    });
+  } else if (s.liveMatch || !s.competitions?.league_1?.schedule?.length) {
     store.update(["liveMatch", "competitions", "activeCompId"], draft => {
       draft.liveMatch = null;
-      if (draft.clubs && (!draft.competitions?.league_1?.schedule?.length)) {
-        draft.competitions = initCompetitions(draft.clubs);
+      if (!draft.competitions?.league_1?.schedule?.length) {
+        draft.competitions = initCompetitions(draft.clubs, draft.userClubId);
         draft.activeCompId = "league_1";
       }
     });
@@ -55,7 +67,7 @@ function renderJerseySvg(primaryColor, secondaryColor, number, isOutOfPos = fals
   const height = Math.round(size * (58 / 64));
   const strokeCol = isOutOfPos ? "#fde047" : (secondaryColor || "#ffffff");
   const pLow = (primaryColor || "").toLowerCase();
-  const numCol = (pLow === "#ffffff" || pLow === "#f8fafc" || pLow === "#facc15" || pLow === "#fde047")
+  const numCol = (pLow === "#ffffff" || pLow === "#f8fafc" || pLow === "#facc15" || pLow === "#fde047" || pLow === "#fde100")
     ? "#090d16"
     : "#ffffff";
 
@@ -136,8 +148,8 @@ function render() {
               ${renderClubBadge(userClub, 62)}
             </div>
             <h2 style="font-size: 17px; font-weight: 900; letter-spacing: -0.01em; margin-bottom: 2px;">${userClub.name}</h2>
-            <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px;">
-              Temporada ${state.season || 1} • Jornada ${Math.min(22, leagueRound)}/22
+            <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px;">
+              ${userClub.flag || "⚽"} ${userClub.leagueName || "Primera División"} • J${Math.min(22, leagueRound)}/22
             </div>
             <div style="text-align:left; font-size:11px; color:var(--text-muted); margin-bottom:4px;">Confianza Directiva</div>
             ${renderMiniBar(boardConf, confColor)}
@@ -148,7 +160,7 @@ function render() {
             ${renderTabBtn("squad", "👕 Plantilla", activeTab, userClub.colors[0])}
             ${renderTabBtn("tactics", "📋 Pizarra Táctica", activeTab, userClub.colors[0])}
             ${renderTabBtn("staff", "🎓 Staff y Estadio", activeTab, userClub.colors[0])}
-            ${renderTabBtn("transfers", "💼 Mercado Fichajes", activeTab, userClub.colors[0])}
+            ${renderTabBtn("transfers", "💼 Mercado Global", activeTab, userClub.colors[0])}
             ${renderTabBtn("inbox", "📩 Bandeja IA", activeTab, userClub.colors[0], unreadCount)}
             ${renderTabBtn("table", "🏆 Competiciones", activeTab, userClub.colors[0])}
           </nav>
@@ -192,7 +204,7 @@ function render() {
             </div>
           </div>
           <div style="font-size: 12px; color: var(--text-muted); font-weight: 700;">
-            FOOTBALL MANAGER INDIE <span style="color: #3b82f6;">2026</span>
+            WORLD FOOTBALL MANAGER <span style="color: #3b82f6;">2026</span>
           </div>
         </header>
 
@@ -310,7 +322,7 @@ function renderHomeTab(state) {
         <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;">
           ${renderClubBadge(home, 44)}
           <b style="font-size: 14px;">${home.name}</b>
-          <span style="font-size: 11px; color: var(--text-muted);">OVR ${home.ovr}</span>
+          <span style="font-size: 11px; color: var(--text-muted);">${home.flag || ""} OVR ${home.ovr}</span>
         </div>
         <div style="text-align: center;">
           <div style="font-size: 13px; font-weight: 900; color: var(--text-muted); letter-spacing: 0.14em;">VS</div>
@@ -318,7 +330,7 @@ function renderHomeTab(state) {
         <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;">
           ${renderClubBadge(away, 44)}
           <b style="font-size: 14px;">${away.name}</b>
-          <span style="font-size: 11px; color: var(--text-muted);">OVR ${away.ovr}</span>
+          <span style="font-size: 11px; color: var(--text-muted);">${away.flag || ""} OVR ${away.ovr}</span>
         </div>
       </div>
       <button id="btn-play-match" data-comp="${nextEvent.compId}" class="fm-btn fm-btn-play">
@@ -370,7 +382,7 @@ function renderHomeTab(state) {
         </div>
       </div>
     </div>
-    ${renderLeagueTableCard(state)}
+    ${renderLeagueTableCard(state, "league_1")}
   `;
 }
 
@@ -640,29 +652,49 @@ function renderTacticsTab(state) {
 function renderTransfersTab(state) {
   const scoutLvl = state.staff?.scout || 1;
   const posFilter = state.marketPosFilter || "ALL";
+  const leagueFilter = state.marketLeagueFilter || "ALL";
+
   const marketPlayers = Object.values(state.players || {})
-    .filter(p => p.clubId !== state.userClubId && (posFilter === "ALL" || p.pos === posFilter))
+    .filter(p => {
+      if (p.clubId === state.userClubId) return false;
+      if (posFilter !== "ALL" && p.pos !== posFilter) return false;
+      if (leagueFilter !== "ALL") {
+        const clubLeague = state.clubs[p.clubId]?.leagueId;
+        if (clubLeague !== leagueFilter) return false;
+      }
+      return true;
+    })
     .sort((a, b) => b.ovr - a.ovr)
-    .slice(0, 25);
+    .slice(0, 30);
 
   return `
     <div class="fm-card">
       <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 14px;">
-        <h3 style="margin: 0;">Mercado Global (Descuento Ojeador: -${(scoutLvl - 1) * 6}%)</h3>
-        <div style="display: flex; gap: 6px;">
-          ${["ALL", "POR", "DEF", "MED", "DEL"].map(pos => `
-            <button class="btn-filter-pos fm-btn ${posFilter === pos ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-pos="${pos}" style="padding: 5px 10px; font-size: 12px;">
-              ${pos === "ALL" ? "Todos" : pos}
+        <h3 style="margin: 0;">Mercado Mundial — 4 Ligas (Descuento Ojeador: -${(scoutLvl - 1) * 6}%)</h3>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+          <button class="btn-filter-league fm-btn ${leagueFilter === 'ALL' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="ALL" style="padding: 5px 9px; font-size: 11px;">🌍 Todas</button>
+          ${LEAGUES_CATALOG.map(l => `
+            <button class="btn-filter-league fm-btn ${leagueFilter === l.id ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="${l.id}" style="padding: 5px 9px; font-size: 11px;">
+              ${l.flag} ${l.country}
             </button>
           `).join("")}
         </div>
       </div>
+
+      <div style="display: flex; gap: 6px; margin-bottom: 14px;">
+        ${["ALL", "POR", "DEF", "MED", "DEL"].map(pos => `
+          <button class="btn-filter-pos fm-btn ${posFilter === pos ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-pos="${pos}" style="padding: 5px 10px; font-size: 12px;">
+            ${pos === "ALL" ? "Todas las Posiciones" : pos}
+          </button>
+        `).join("")}
+      </div>
+
       <div style="overflow-x:auto;">
         <table class="fm-table">
           <thead>
             <tr>
               <th>Jugador y Atributos</th>
-              <th>Club Actual</th>
+              <th>Club y Liga</th>
               <th>Pos</th>
               <th>Edad</th>
               <th>OVR</th>
@@ -687,7 +719,7 @@ function renderTransfersTab(state) {
                       <span>DEF <b style="color:#e2e8f0;">${attrs.DEF}</b></span>
                     </div>
                   </td>
-                  <td style="color: var(--text-muted);">${renderClubBadge(c, 20)} ${c?.name || "-"}</td>
+                  <td style="color: var(--text-muted);">${renderClubBadge(c, 20)} <b>${c?.name || "-"}</b> <small>(${c?.flag || ""})</small></td>
                   <td><span class="fm-badge-pos">${p.pos}</span></td>
                   <td>${p.age}</td>
                   <td>${renderOvrBadge(p.ovr)}</td>
@@ -741,11 +773,24 @@ function renderInboxTab(state) {
 }
 
 function renderCompetitionsTab(state) {
+  const otherLeagues = Object.values(state.competitions?.otherLeagues || {});
   return `
     ${renderCupCard(state, "cont_1", "🌍")}
     ${renderCupCard(state, "cup_1", "🏆")}
+
+    <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px;">
+      <button class="btn-select-standings fm-btn ${selectedStandingsView === 'league_1' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-lid="league_1" style="font-size:12px;">
+        ⭐ ${state.competitions?.league_1?.name || "Mi Liga"}
+      </button>
+      ${otherLeagues.map(ol => `
+        <button class="btn-select-standings fm-btn ${selectedStandingsView === ol.id ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-lid="${ol.id}" style="font-size:12px;">
+          ${ol.name}
+        </button>
+      `).join("")}
+    </div>
+
     <div class="fm-grid-2">
-      <div>${renderLeagueTableCard(state)}</div>
+      <div>${renderLeagueTableCard(state, selectedStandingsView)}</div>
       <div>${renderTopScorersCard(state)}</div>
     </div>
   `;
@@ -755,11 +800,11 @@ function renderTopScorersCard(state) {
   const topScorers = Object.values(state.players || {})
     .filter(p => (p.goals || 0) > 0)
     .sort((a, b) => b.goals - a.goals || b.ovr - a.ovr)
-    .slice(0, 10);
+    .slice(0, 12);
 
   return `
     <div class="fm-card">
-      <h3>⚽ Tabla de Goleadores (Pichichi)</h3>
+      <h3>⚽ Bota de Oro / Goleadores Globales</h3>
       ${topScorers.length === 0 ? `<p style="color: var(--text-muted); font-size: 14px;">Aún no se han marcado goles en esta temporada.</p>` : `
         <table class="fm-table">
           <thead>
@@ -771,14 +816,17 @@ function renderTopScorersCard(state) {
             </tr>
           </thead>
           <tbody>
-            ${topScorers.map((p, i) => `
-              <tr class="${p.clubId === state.userClubId ? 'highlight-row' : ''}">
-                <td><b>${i + 1}</b></td>
-                <td><b>${p.name}</b></td>
-                <td style="color: var(--text-muted);">${state.clubs[p.clubId]?.name || "-"}</td>
-                <td><b style="color: var(--success); font-size:14px;">${p.goals}</b></td>
-              </tr>
-            `).join("")}
+            ${topScorers.map((p, i) => {
+              const c = state.clubs[p.clubId];
+              return `
+                <tr class="${p.clubId === state.userClubId ? 'highlight-row' : ''}">
+                  <td><b>${i + 1}</b></td>
+                  <td><b>${p.name}</b></td>
+                  <td style="color: var(--text-muted);">${c?.flag || ""} ${c?.name || "-"}</td>
+                  <td><b style="color: var(--success); font-size:14px;">${p.goals}</b></td>
+                </tr>
+              `;
+            }).join("")}
           </tbody>
         </table>
       `}
@@ -804,9 +852,9 @@ function renderCupCard(state, compKey, icon) {
             <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px; font-weight: 800; text-transform: uppercase;">${cup.stageNames[sIdx]}</div>
             ${matches.map(([hId, aId]) => `
               <div style="font-size: 13px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.06);">
-                <span style="${hId === state.userClubId ? 'color: var(--success); font-weight:700;' : ''}">${state.clubs[hId]?.name || hId}</span>
+                <span style="${hId === state.userClubId ? 'color: var(--success); font-weight:700;' : ''}">${state.clubs[hId]?.flag || ""} ${state.clubs[hId]?.name || hId}</span>
                 <span style="color: var(--text-muted);"> vs </span>
-                <span style="${aId === state.userClubId ? 'color: var(--success); font-weight:700;' : ''}">${state.clubs[aId]?.name || aId}</span>
+                <span style="${aId === state.userClubId ? 'color: var(--success); font-weight:700;' : ''}">${state.clubs[aId]?.flag || ""} ${state.clubs[aId]?.name || aId}</span>
               </div>
             `).join("")}
           </div>
@@ -816,8 +864,11 @@ function renderCupCard(state, compKey, icon) {
   `;
 }
 
-function renderLeagueTableCard(state) {
-  const comp = state.competitions?.league_1;
+function renderLeagueTableCard(state, leagueKey = "league_1") {
+  const comp = leagueKey === "league_1"
+    ? state.competitions?.league_1
+    : state.competitions?.otherLeagues?.[leagueKey] || state.competitions?.league_1;
+
   if (!comp || !comp.standings) return "";
 
   const sorted = Object.entries(comp.standings)
@@ -826,7 +877,7 @@ function renderLeagueTableCard(state) {
 
   return `
     <div class="fm-card">
-      <h3>Clasificación - ${comp.name} (Top 4 clasifica a Copa Continental)</h3>
+      <h3>Clasificación - ${comp.name}</h3>
       <div style="overflow-x:auto;">
         <table class="fm-table">
           <thead>
@@ -978,26 +1029,34 @@ function renderLiveMatchView(state) {
 }
 
 function renderClubSelection(state) {
-  const clubs = Object.values(state.clubs || {}).filter(c => !c.id.startsWith("ext_"));
+  const clubs = Object.values(state.clubs || {}).filter(c => (c.leagueId || "esp_1") === selectedPreviewLeague);
   return `
-    <div class="fm-container" style="max-width: 960px; margin-top: 16px;">
+    <div class="fm-container" style="max-width: 980px; margin-top: 16px;">
       <div class="fm-hero-header">
         <div style="display:inline-block; background:rgba(59,130,246,0.2); border:1px solid rgba(59,130,246,0.45); color:#60a5fa; font-size:11px; font-weight:800; padding:4px 12px; border-radius:99px; letter-spacing:0.08em; margin-bottom:10px;">
-          TEMPORADA 2026 • PRIMERA DIVISIÓN
+          TEMPORADA 2026 • 4 LIGAS EUROPEAS • 48 CLUBES
         </div>
         <h1 style="font-size: 32px; font-weight: 900; letter-spacing: -0.02em; margin-bottom: 8px;">
-          ⚽ FOOTBALL MANAGER <span style="color: #3b82f6;">INDIE</span>
+          ⚽ WORLD FOOTBALL MANAGER <span style="color: #3b82f6;">2026</span>
         </h1>
-        <p style="color: var(--text-muted); max-width: 540px; margin: 0 auto; font-size: 14px;">
-          Asume el banquillo, diseña tu pizarra táctica, gestiona la cantera y conquista la Liga, la Copa Nacional y la Copa Continental Élite.
+        <p style="color: var(--text-muted); max-width: 580px; margin: 0 auto 18px; font-size: 14px;">
+          Elige tu liga y toma el mando de uno de los 48 clubes disponibles para conquistar tu campeonato doméstico, la Copa Nacional y la Copa Continental Élite.
         </p>
+
+        <div style="display:flex; justify-content:center; flex-wrap:wrap; gap:8px;">
+          ${LEAGUES_CATALOG.map(l => `
+            <button class="btn-preview-league fm-btn ${selectedPreviewLeague === l.id ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-lid="${l.id}" style="padding: 8px 16px; font-size: 13px;">
+              ${l.flag} ${l.name}
+            </button>
+          `).join("")}
+        </div>
       </div>
 
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(275px, 1fr)); gap: 14px;">
         ${clubs.map(c => {
           const stadium = getClubStadium(c, 1);
-          const tier = c.ovr >= 82 ? { label: "Favorito al Título", color: "#fde047" }
-                     : c.ovr >= 78 ? { label: "Aspirante Europeo", color: "#38bdf8" }
+          const tier = c.ovr >= 83 ? { label: "Favorito al Título", color: "#fde047" }
+                     : c.ovr >= 79 ? { label: "Aspirante Europeo", color: "#38bdf8" }
                      : { label: "Proyecto / Reto", color: "#34d399" };
           return `
             <button class="fm-club-card-pick btn-select-club" data-id="${c.id}" style="background: linear-gradient(150deg, ${c.colors[0]}26, rgba(15, 23, 42, 0.94) 65%); border-top: 2px solid ${c.colors[0]};">
@@ -1114,6 +1173,19 @@ function bindEvents(state) {
     });
   });
 
+  document.querySelectorAll(".btn-filter-league").forEach(btn => {
+    btn.addEventListener("click", () => {
+      store.update(["marketLeagueFilter"], draft => { draft.marketLeagueFilter = btn.dataset.league; });
+    });
+  });
+
+  document.querySelectorAll(".btn-select-standings").forEach(btn => {
+    btn.addEventListener("click", () => {
+      selectedStandingsView = btn.dataset.lid;
+      render();
+    });
+  });
+
   document.querySelectorAll(".btn-formation").forEach(btn => {
     btn.addEventListener("click", () => {
       const form = btn.dataset.form;
@@ -1192,12 +1264,21 @@ function bindEvents(state) {
 }
 
 document.addEventListener("click", e => {
+  const previewLeagueBtn = e.target.closest(".btn-preview-league");
+  if (previewLeagueBtn) {
+    selectedPreviewLeague = previewLeagueBtn.dataset.lid;
+    render();
+  }
+
   const selectBtn = e.target.closest(".btn-select-club");
   if (selectBtn) {
     const clubId = selectBtn.dataset.id;
-    store.update(["userClubId", "budget"], draft => {
+    selectedStandingsView = "league_1";
+    store.update(["userClubId", "budget", "competitions", "activeCompId"], draft => {
       draft.userClubId = clubId;
       draft.budget = draft.clubs[clubId]?.budget || 50000000;
+      draft.competitions = initCompetitions(draft.clubs, clubId);
+      draft.activeCompId = "league_1";
     });
   }
 
