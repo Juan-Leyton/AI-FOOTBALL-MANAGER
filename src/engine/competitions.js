@@ -40,6 +40,7 @@ function buildLeagueObject(id, name, clubIds) {
     clubIds,
     schedule: generateRoundRobin(clubIds),
     currentRound: 0,
+    playedThisRound: {},
     standings
   };
 }
@@ -62,19 +63,25 @@ function createCupBracket(name, clubIds, stageNames) {
   };
 }
 
-export function initContinentalCup(clubs, userClubId = null) {
+export function initContinentalCup(clubs, userClubId = null, humanClubIds = []) {
   const allClubs = Object.values(clubs || {});
   const elitePool = [...allClubs]
     .sort((a, b) => (b.ovr || 75) - (a.ovr || 75))
     .slice(0, 8)
     .map(c => c.id);
-  if (userClubId && !elitePool.includes(userClubId)) {
-    elitePool[elitePool.length - 1] = userClubId;
-  }
+
+  const humans = humanClubIds.length ? humanClubIds : userClubId ? [userClubId] : [];
+  humans.forEach((hid, idx) => {
+    if (hid && !elitePool.includes(hid)) {
+      const replacePos = Math.max(0, elitePool.length - 1 - idx);
+      elitePool[replacePos] = hid;
+    }
+  });
+
   return createCupBracket("Copa Continental Élite", elitePool, ["Cuartos Continentales", "Semifinales", "Final Continental"]);
 }
 
-export function initCompetitions(clubs, userClubId = null) {
+export function initCompetitions(clubs, userClubId = null, humanClubIds = []) {
   const allClubs = Object.values(clubs || {});
   const userClub = userClubId ? clubs[userClubId] : null;
   const activeLeagueId = userClub?.leagueId || "esp_1";
@@ -99,9 +106,16 @@ export function initCompetitions(clubs, userClubId = null) {
     .slice(0, 8);
   const cup_1 = createCupBracket("Copa Nacional", cupTeams, ["Cuartos de Final", "Semifinales", "Gran Final"]);
 
-  const cont_1 = initContinentalCup(clubs, userClubId);
+  const cont_1 = initContinentalCup(clubs, userClubId, humanClubIds);
 
   return { league_1, otherLeagues, cup_1, cont_1 };
+}
+
+export function getClubLeagueObj(comps, clubId) {
+  if (!comps || !clubId) return comps?.league_1 || null;
+  if (comps.league_1?.clubIds?.includes(clubId)) return comps.league_1;
+  const found = Object.values(comps.otherLeagues || {}).find(ol => ol.clubIds?.includes(clubId));
+  return found || comps.league_1 || null;
 }
 
 function simulateAiScore(homeClub, awayClub, allowDraw = true) {
@@ -178,6 +192,7 @@ export function getNextUserEvent(state) {
   const comps = state.competitions;
   if (!uid || !comps?.league_1) return null;
 
+  const userLeague = getClubLeagueObj(comps, uid);
   const l1 = comps.league_1;
   const round = l1.currentRound || 0;
 
@@ -207,13 +222,21 @@ export function getNextUserEvent(state) {
     }
   }
 
-  if (round < l1.schedule.length) {
-    const matches = l1.schedule[round] || [];
+  if (userLeague && round < userLeague.schedule.length) {
+    if (userLeague.playedThisRound?.[uid]) {
+      return {
+        compId: userLeague.id,
+        compName: `${userLeague.name} • Jornada ${round + 1}`,
+        waitingForOthers: true,
+        match: null
+      };
+    }
+    const matches = userLeague.schedule[round] || [];
     const userMatch = matches.find(([h, a]) => h === uid || a === uid);
     if (userMatch) {
       return {
-        compId: "league_1",
-        compName: `${l1.name} • Jornada ${round + 1}`,
+        compId: userLeague.id,
+        compName: `${userLeague.name} • Jornada ${round + 1}`,
         match: userMatch
       };
     }
@@ -223,10 +246,13 @@ export function getNextUserEvent(state) {
 }
 
 export function completeRoundWithUserResult(homeId, awayId, gh, ga, compId = "league_1") {
-  store.update(["competitions", "liveMatch", "trophies", "budget"], draft => {
+  store.update(["competitions", "liveMatch", "trophies", "budget", "mpManagers"], draft => {
     const comps = draft.competitions;
     const clubs = draft.clubs;
     const players = draft.players;
+    const humanIds = draft.isMultiplayer && draft.mpManagers?.length
+      ? draft.mpManagers.map(m => m.clubId)
+      : [draft.userClubId];
 
     if (compId === "cup_1" || compId === "cont_1") {
       const cup = comps[compId];
@@ -261,36 +287,56 @@ export function completeRoundWithUserResult(homeId, awayId, gh, ga, compId = "le
       return;
     }
 
-    const l1 = comps.league_1;
-    const roundIdx = l1.currentRound || 0;
-    const roundMatches = l1.schedule[roundIdx] || [];
+    const roundIdx = comps.league_1.currentRound || 0;
+    const allLeagues = [comps.league_1, ...Object.values(comps.otherLeagues || {})];
 
-    roundMatches.forEach(([hId, aId]) => {
-      if (hId === homeId && aId === awayId) {
-        recordLeagueMatch(l1, hId, aId, gh, ga, clubs, players);
-      } else {
-        const sim = simulateAiScore(clubs[hId], clubs[aId], true);
-        recordLeagueMatch(l1, hId, aId, sim.gh, sim.ga, clubs, players);
+    // 1. Registrar el partido recién jugado/simulado
+    const targetLeague = getClubLeagueObj(comps, homeId);
+    if (targetLeague) {
+      if (!targetLeague.playedThisRound) targetLeague.playedThisRound = {};
+      if (!targetLeague.playedThisRound[homeId] && !targetLeague.playedThisRound[awayId]) {
+        recordLeagueMatch(targetLeague, homeId, awayId, gh, ga, clubs, players);
+        targetLeague.playedThisRound[homeId] = true;
+        targetLeague.playedThisRound[awayId] = true;
       }
-    });
-    l1.currentRound = roundIdx + 1;
+    }
 
-    Object.values(comps.otherLeagues || {}).forEach(otherL => {
-      if ((otherL.currentRound || 0) < otherL.schedule.length) {
-        const oMatches = otherL.schedule[otherL.currentRound] || [];
-        oMatches.forEach(([hId, aId]) => {
-          const sim = simulateAiScore(clubs[hId], clubs[aId], true);
-          recordLeagueMatch(otherL, hId, aId, sim.gh, sim.ga, clubs, players);
+    // 2. Comprobar si todos los mánagers humanos ya jugaron esta jornada
+    const allHumansDone = humanIds.every(hid => {
+      const lg = getClubLeagueObj(comps, hid);
+      return Boolean(lg?.playedThisRound?.[hid]);
+    });
+
+    if (allHumansDone) {
+      allLeagues.forEach(lg => {
+        if ((lg.currentRound || 0) < lg.schedule.length) {
+          const rMatches = lg.schedule[lg.currentRound] || [];
+          rMatches.forEach(([hId, aId]) => {
+            if (!lg.playedThisRound?.[hId] && !lg.playedThisRound?.[aId]) {
+              const sim = simulateAiScore(clubs[hId], clubs[aId], true);
+              recordLeagueMatch(lg, hId, aId, sim.gh, sim.ga, clubs, players);
+            }
+          });
+          lg.currentRound += 1;
+          lg.playedThisRound = {};
+        }
+      });
+
+      if (comps.league_1.currentRound >= comps.league_1.schedule.length) {
+        allLeagues.forEach(lg => {
+          const sorted = Object.entries(lg.standings).sort((a, b) => b[1].pts - a[1].pts || (b[1].gf - b[1].ga) - (a[1].gf - a[1].ga));
+          const champId = sorted[0]?.[0];
+          if (champId === draft.userClubId) {
+            draft.trophies = [...(draft.trophies || []), { title: lg.name, season: draft.season || 1 }];
+            draft.budget = (draft.budget || 0) + 15000000;
+          } else if (draft.isMultiplayer && draft.mpManagers?.length) {
+            const mpChamp = draft.mpManagers.find(m => m.clubId === champId);
+            if (mpChamp) {
+              mpChamp.trophies = [...(mpChamp.trophies || []), { title: lg.name, season: draft.season || 1 }];
+              mpChamp.budget = (mpChamp.budget || 0) + 15000000;
+            }
+          }
         });
-        otherL.currentRound += 1;
-      }
-    });
-
-    if (l1.currentRound >= l1.schedule.length) {
-      const sorted = Object.entries(l1.standings).sort((a, b) => b[1].pts - a[1].pts || (b[1].gf - b[1].ga) - (a[1].gf - a[1].ga));
-      if (sorted[0]?.[0] === draft.userClubId) {
-        draft.trophies = [...(draft.trophies || []), { title: l1.name, season: draft.season || 1 }];
-        draft.budget = (draft.budget || 0) + 15000000;
       }
     }
 
