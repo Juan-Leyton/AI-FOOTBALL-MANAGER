@@ -1,10 +1,11 @@
 import { store } from "../core/state.js";
 import { getNextUserEvent, completeRoundWithUserResult, initCompetitions } from "../engine/competitions.js";
 import { startLiveMatch, drawPitch, togglePauseMatch, setTactic, makeLiveSubstitution, FORMATIONS } from "../engine/match-live.js";
-import { calculateMarketValue, buyPlayer, sellPlayer } from "../engine/transfers.js";
+import { calculateMarketValue, buyPlayer, sellPlayer, maybeGenerateIncomingOffer, respondToTransferOffer } from "../engine/transfers.js";
 import { triggerPostMatchEvent, resolveInboxChoice } from "../ai/director.js";
-import { processRoundProgression, advanceSeason, renewPlayerContract } from "../engine/progression.js";
+import { processRoundProgression, advanceSeason, renewPlayerContract, recordMatchInCareer } from "../engine/progression.js";
 import { STAFF_CATALOG, getStaffUpgradeCost, upgradeStaff } from "../engine/staff.js";
+import { TRAINING_PLANS, setTrainingPlan } from "../engine/training.js";
 import { renderClubBadge } from "./badges.js";
 
 export function initUI() {
@@ -12,10 +13,15 @@ export function initUI() {
   if (!root) return;
 
   const s = store.get();
-  if (s.clubs && (!s.competitions?.league_1?.schedule?.length)) {
-    store.update(["competitions", "activeCompId"], draft => {
-      draft.competitions = initCompetitions(draft.clubs);
-      draft.activeCompId = "league_1";
+  // Si el usuario cerró o recargó la página en medio de un partido, limpiar liveMatch
+  // para volver de forma segura justo antes del partido sin quedar congelado
+  if (s.liveMatch || (s.clubs && (!s.competitions?.league_1?.schedule?.length))) {
+    store.update(["liveMatch", "competitions", "activeCompId"], draft => {
+      draft.liveMatch = null;
+      if (draft.clubs && (!draft.competitions?.league_1?.schedule?.length)) {
+        draft.competitions = initCompetitions(draft.clubs);
+        draft.activeCompId = "league_1";
+      }
     });
   }
 
@@ -62,7 +68,7 @@ function render() {
         ${renderTabBtn("home", "Inicio", activeTab, userClub.colors[0])}
         ${renderTabBtn("squad", "Plantilla", activeTab, userClub.colors[0])}
         ${renderTabBtn("tactics", "Tácticas", activeTab, userClub.colors[0])}
-        ${renderTabBtn("staff", "Staff", activeTab, userClub.colors[0])}
+        ${renderTabBtn("staff", "Staff y Entreno", activeTab, userClub.colors[0])}
         ${renderTabBtn("transfers", "Mercado Fichajes", activeTab, userClub.colors[0])}
         ${renderTabBtn("inbox", `Bandeja IA ${unreadCount > 0 ? `(${unreadCount})` : ""}`, activeTab, userClub.colors[0])}
         ${renderTabBtn("table", "Competiciones", activeTab, userClub.colors[0])}
@@ -98,6 +104,7 @@ function renderHomeTab(state) {
   const startersCount = userPlayers.filter(p => p.starter).length;
   const fin = state.lastFinanceReport;
   const trophies = state.trophies || [];
+  const cs = state.careerStats || { played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0 };
 
   let matchTitle = "Fin de Temporada";
   let matchCard = `<p><b>¡Temporada Finalizada!</b> Has completado los 22 partidos de Liga.</p>`;
@@ -142,11 +149,15 @@ function renderHomeTab(state) {
       </div>
 
       <div class="fm-card">
-        <h3>Estado y Palmarés</h3>
-        <p style="margin-bottom: 8px;">Presupuesto Fichajes: <b style="color: var(--success);">${((state.budget || 0) / 1e6).toFixed(2)} M€</b></p>
-        <p style="margin-bottom: 8px;">Confianza Directiva: <b>${state.boardConfidence || 85}%</b></p>
-        <p style="margin-bottom: 8px;">Alineación Titular: <b style="color: ${startersCount === 11 ? 'var(--success)' : 'var(--danger)'};">${startersCount} / 11 jugadores</b></p>
-        <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--panel-border);">
+        <h3>Historial de Mánager y Palmarés</h3>
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; background: var(--bg-dark); padding: 10px; border-radius: 8px; border: 1px solid var(--panel-border); text-align: center; margin-bottom: 12px;">
+          <div><small style="color: var(--text-muted); display:block;">PJ</small><b>${cs.played}</b></div>
+          <div><small style="color: var(--text-muted); display:block;">Victorias</small><b style="color: var(--success);">${cs.wins}</b></div>
+          <div><small style="color: var(--text-muted); display:block;">Empates</small><b>${cs.draws}</b></div>
+          <div><small style="color: var(--text-muted); display:block;">Derrotas</small><b style="color: var(--danger);">${cs.losses}</b></div>
+        </div>
+        <p style="margin-bottom: 6px; font-size: 14px;">Confianza Directiva: <b>${state.boardConfidence || 85}%</b> • Titulares: <b style="color: ${startersCount === 11 ? 'var(--success)' : 'var(--danger)'};">${startersCount}/11</b></p>
+        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--panel-border);">
           <small style="color: var(--text-muted); display: block; margin-bottom: 6px;">Sala de Trofeos (${trophies.length}):</small>
           ${trophies.length === 0 ? `<small style="color: #64748b;">Aún no has ganado trofeos oficiales.</small>` : `
             <div style="display: flex; flex-wrap: wrap; gap: 6px;">
@@ -226,7 +237,27 @@ function renderSquadTab(state) {
 
 function renderStaffTab(state) {
   const staff = state.staff || { fitness: 1, scout: 1, youth: 1 };
+  const activePlan = state.trainingPlan || "balanced";
+
   return `
+    <div class="fm-card">
+      <h3>Plan de Entrenamiento Semanal</h3>
+      <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 14px;">Selecciona el enfoque de trabajo de esta semana para moldear el desarrollo y físico de tu plantilla:</p>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px;">
+        ${Object.values(TRAINING_PLANS).map(plan => {
+          const isSelected = activePlan === plan.key;
+          return `
+            <button class="btn-training-plan" data-plan="${plan.key}" style="text-align: left; background: ${isSelected ? 'rgba(59,130,246,0.18)' : 'var(--bg-dark)'}; border: 2px solid ${isSelected ? 'var(--primary)' : 'var(--panel-border)'}; border-radius: 10px; padding: 14px; color: #fff; cursor: pointer;">
+              <div style="font-weight: 800; margin-bottom: 6px; color: ${isSelected ? '#60a5fa' : '#fff'};">
+                ${isSelected ? '✓ ' : ''}${plan.name}
+              </div>
+              <div style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">${plan.desc}</div>
+            </button>
+          `;
+        }).join("")}
+      </div>
+    </div>
+
     <div class="fm-card">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
         <h3 style="margin: 0;">Cuerpo Técnico e Instalaciones</h3>
@@ -263,13 +294,14 @@ function renderStaffTab(state) {
 
 function renderTacticsTab(state) {
   const club = state.clubs[state.userClubId];
-  const t = club.tactics || { mentality: 50, tempo: 50, press: 50 };
+  const t = club.tactics || { mentality: 55, tempo: 55, press: 55 };
   const formation = club.formation || "4-3-3";
   const starters = Object.values(state.players || {})
     .filter(p => p.clubId === state.userClubId && p.starter)
     .slice(0, 11);
 
   const coords = FORMATIONS[formation] || FORMATIONS["4-3-3"];
+  const shiftPreview = ((t.mentality - 50) / 50) * 14;
 
   return `
     <div class="fm-grid-2">
@@ -287,13 +319,14 @@ function renderTacticsTab(state) {
           <div style="position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,0.35);"></div>
           <div style="position: absolute; left: 50%; top: 50%; width: 70px; height: 70px; transform: translate(-50%, -50%); border: 2px solid rgba(255,255,255,0.35); border-radius: 50%;"></div>
           ${coords.map((slot, idx) => {
-            const px = Array.isArray(slot) ? slot[0] : slot.x;
+            const rawX = Array.isArray(slot) ? slot[0] : slot.x;
             const py = Array.isArray(slot) ? slot[1] : slot.y;
+            const px = idx === 0 ? rawX * 140 : Math.max(12, Math.min(92, rawX * 140 + shiftPreview));
             const player = starters[idx];
             const label = player ? player.name.split(" ").pop() : (slot.pos || `Pos ${idx + 1}`);
             const ovr = player ? player.ovr : "--";
             return `
-              <div style="position: absolute; left: ${Math.min(92, px * 170)}%; top: ${py * 100}%; transform: translate(-50%, -50%); text-align: center;">
+              <div style="position: absolute; left: ${px}%; top: ${py * 100}%; transform: translate(-50%, -50%); text-align: center; transition: left 0.2s ease;">
                 <div style="width: 30px; height: 30px; margin: 0 auto; border-radius: 50%; background: ${club.colors[0]}; border: 2px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold;">
                   ${ovr}
                 </div>
@@ -309,7 +342,7 @@ function renderTacticsTab(state) {
       <div class="fm-card">
         <h3>Instrucciones del Equipo</h3>
         <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 18px;">
-          Define cómo se comporta tu bloque en el simulador en vivo.
+          Define la altura del bloque, la velocidad de pase y la presión antes y durante el partido.
         </p>
         <div style="display: grid; gap: 22px;">
           <div>
@@ -418,7 +451,7 @@ function renderInboxTab(state) {
             ${m.choices && m.choices.length > 0 && !m.resolved ? `
               <div style="display: flex; flex-wrap: wrap; gap: 8px;">
                 ${m.choices.map((c, idx) => `
-                  <button class="btn-event-choice fm-btn fm-btn-primary" data-evid="${m.id}" data-idx="${idx}" style="font-size: 13px;">
+                  <button class="btn-event-choice fm-btn fm-btn-primary" data-evid="${m.id}" data-type="${m.type || 'narrative'}" data-idx="${idx}" style="font-size: 13px;">
                     ${c.label}
                   </button>
                 `).join("")}
@@ -560,10 +593,14 @@ function renderLiveMatchView(state) {
   const homeClub = state.clubs[m.homeId];
   const awayClub = state.clubs[m.awayId];
 
+  const totalPoss = (m.stats?.homePoss || 1) + (m.stats?.awayPoss || 1);
+  const homePossPct = Math.round(((m.stats?.homePoss || 1) / totalPoss) * 100);
+  const awayPossPct = 100 - homePossPct;
+
   return `
     <div class="fm-container" style="max-width: 860px;">
       <div class="fm-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; background: #090d16; padding: 16px 24px; border-radius: 10px; margin-bottom: 14px; border: 1px solid var(--panel-border);">
+        <div style="display: flex; justify-content: space-between; align-items: center; background: #090d16; padding: 16px 24px; border-radius: 10px; margin-bottom: 10px; border: 1px solid var(--panel-border);">
           <div style="display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: bold;">
             ${renderClubBadge(homeClub, 34)} ${m.homeName}
           </div>
@@ -576,6 +613,12 @@ function renderLiveMatchView(state) {
           <div style="display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: bold;">
             ${m.awayName} ${renderClubBadge(awayClub, 34)}
           </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-bottom: 12px; padding: 0 6px;">
+          <span>Posesión: <b style="color:#fff;">${homePossPct}%</b> • Tiros: <b style="color:#fff;">${m.stats?.homeShots || 0}</b></span>
+          <span>Táctica en campo: <b style="color:#60a5fa;">${activeTactic}</b></span>
+          <span>Posesión: <b style="color:#fff;">${awayPossPct}%</b> • Tiros: <b style="color:#fff;">${m.stats?.awayShots || 0}</b></span>
         </div>
 
         ${!m.finished ? `
@@ -694,6 +737,12 @@ function bindEvents(state) {
     });
   });
 
+  document.querySelectorAll(".btn-training-plan").forEach(btn => {
+    btn.addEventListener("click", () => {
+      setTrainingPlan(btn.dataset.plan);
+    });
+  });
+
   document.querySelectorAll(".btn-upgrade-staff").forEach(btn => {
     btn.addEventListener("click", () => {
       const res = upgradeStaff(btn.dataset.key);
@@ -718,14 +767,30 @@ function bindEvents(state) {
 
   document.querySelectorAll(".btn-buy-player").forEach(btn => {
     btn.addEventListener("click", () => {
-      const res = buyPlayer(btn.dataset.pid);
-      if (!res.ok) alert(res.msg);
+      const pid = btn.dataset.pid;
+      const res = buyPlayer(pid, false);
+      if (!res.ok) {
+        if (res.needsCounter) {
+          if (confirm(`${res.msg}\n\n¿Deseas aceptar la contraoferta y ficharlo ahora?`)) {
+            const retry = buyPlayer(pid, true);
+            if (!retry.ok) alert(retry.msg);
+          }
+        } else {
+          alert(res.msg);
+        }
+      }
     });
   });
 
   document.querySelectorAll(".btn-event-choice").forEach(btn => {
     btn.addEventListener("click", () => {
-      resolveInboxChoice(btn.dataset.evid, Number(btn.dataset.idx));
+      const evid = btn.dataset.evid;
+      const idx = Number(btn.dataset.idx);
+      if (btn.dataset.type === "transfer_offer") {
+        respondToTransferOffer(evid, idx);
+      } else {
+        resolveInboxChoice(evid, idx);
+      }
     });
   });
 
@@ -734,6 +799,9 @@ function bindEvents(state) {
       const key = slider.dataset.key;
       const val = Number(slider.value);
       store.update(["clubs"], draft => {
+        if (!draft.clubs[state.userClubId].tactics) {
+          draft.clubs[state.userClubId].tactics = { mentality: 55, tempo: 55, press: 55 };
+        }
         draft.clubs[state.userClubId].tactics[key] = val;
       });
     });
@@ -779,8 +847,10 @@ document.addEventListener("click", e => {
       const compId = stateBefore.activeCompId || "league_1";
       const wasUserHome = m.homeId === stateBefore.userClubId;
       completeRoundWithUserResult(m.homeId, m.awayId, m.gh, m.ga, compId);
+      recordMatchInCareer(m.gh, m.ga);
       processRoundProgression(wasUserHome);
       triggerPostMatchEvent();
+      maybeGenerateIncomingOffer();
 
       const stateAfter = store.get();
       const league = stateAfter.competitions.league_1;

@@ -58,7 +58,7 @@ function initAgents(club, playersMap, isHome) {
 }
 
 function getInitialTacticLabel(club) {
-  const m = club?.tactics?.mentality ?? 50;
+  const m = Number(club?.tactics?.mentality ?? 50);
   if (m >= 65) return "Ofensivo";
   if (m <= 38) return "Defensivo";
   return "Equilibrado";
@@ -80,8 +80,8 @@ export function startLiveMatch(homeId, awayId, onFinish) {
     awayName: awayClub.name,
     homeColors: homeClub.colors,
     awayColors: awayClub.colors,
-    homeSliders: homeClub.tactics || { mentality: 55, tempo: 55, press: 55 },
-    awaySliders: awayClub.tactics || { mentality: 55, tempo: 55, press: 55 },
+    homeSliders: { ...(homeClub.tactics || { mentality: 55, tempo: 55, press: 55 }) },
+    awaySliders: { ...(awayClub.tactics || { mentality: 55, tempo: 55, press: 55 }) },
     homeAgents,
     awayAgents,
     homeTactic: getInitialTacticLabel(homeClub),
@@ -89,6 +89,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
     subsUsed: 0,
     maxSubs: 5,
     goalScorers: [],
+    goalBanner: null,
     stats: { homePoss: 1, awayPoss: 1, homeShots: 0, awayShots: 0 },
     ball: {
       x: 0.5,
@@ -118,10 +119,21 @@ export function startLiveMatch(homeId, awayId, onFinish) {
     const m = currentState.liveMatch;
     if (!m || m.finished || m.paused || !m.ball) return;
 
+    if (m.goalBanner && m.goalBanner.timer > 0) {
+      store.update(["liveMatch"], draft => {
+        draft.liveMatch.goalBanner.timer -= 1;
+        if (draft.liveMatch.goalBanner.timer <= 0) {
+          draft.liveMatch.goalBanner = null;
+        }
+      });
+      return;
+    }
+
     let { ball, homeAgents, awayAgents, tick, gh, ga, events, homeTactic, awayTactic, goalScorers, stats } = m;
     const newEvents = [...events];
     const newScorers = [...(goalScorers || [])];
     const newStats = { ...(stats || { homePoss: 1, awayPoss: 1, homeShots: 0, awayShots: 0 }) };
+    let newGoalBanner = null;
 
     const nextTick = (tick || 0) + 1;
     const currentMin = Math.floor(nextTick / 10);
@@ -131,37 +143,47 @@ export function startLiveMatch(homeId, awayId, onFinish) {
     if (ball.ownerTeam === "home") newStats.homePoss += 1;
     else if (ball.ownerTeam === "away") newStats.awayPoss += 1;
 
+    // Combina la orden en vivo (Defensivo/Equilibrado/Ofensivo) con los sliders de la pizarra
     const getTacticProfile = (tacticLabel, sliders) => {
-      const tempoFactor = 0.85 + ((sliders?.tempo ?? 50) / 100) * 0.30;
-      const pressFactor = 0.80 + ((sliders?.press ?? 50) / 100) * 0.40;
+      const sMentality = Number(sliders?.mentality ?? 50);
+      const sTempo = Number(sliders?.tempo ?? 50);
+      const sPress = Number(sliders?.press ?? 50);
+
+      // Ajuste fino desde sliders (-0.06 a +0.06)
+      const sliderShift = ((sMentality - 50) / 50) * 0.06;
+      const tempoFactor = 0.80 + (sTempo / 100) * 0.42;
+      const pressFactor = 0.70 + (sPress / 100) * 0.65;
 
       if (tacticLabel === "Ofensivo") {
         return {
-          blockShift: 0.17,
-          pressRange: 0.24 * pressFactor,
-          passSpeed: 0.028 * tempoFactor,
-          shootRange: 0.30,
-          shootAggression: 0.48,
-          dribbleRatio: 0.42
+          blockShift: 0.20 + sliderShift,
+          pressRange: 0.28 * pressFactor,
+          passSpeed: 0.029 * tempoFactor,
+          shootRange: 0.32,
+          shootAggression: 0.54,
+          dribbleRatio: 0.44,
+          decisionDelay: Math.max(4, Math.round(10 / tempoFactor))
         };
       }
       if (tacticLabel === "Defensivo") {
         return {
-          blockShift: -0.15,
-          pressRange: 0.12 * pressFactor,
-          passSpeed: 0.023 * tempoFactor,
-          shootRange: 0.23,
-          shootAggression: 0.28,
-          dribbleRatio: 0.25
+          blockShift: -0.18 + sliderShift,
+          pressRange: 0.11 * pressFactor,
+          passSpeed: 0.022 * tempoFactor,
+          shootRange: 0.22,
+          shootAggression: 0.26,
+          dribbleRatio: 0.22,
+          decisionDelay: Math.max(5, Math.round(12 / tempoFactor))
         };
       }
       return {
-        blockShift: 0.01,
-        pressRange: 0.18 * pressFactor,
+        blockShift: 0.01 + sliderShift,
+        pressRange: 0.19 * pressFactor,
         passSpeed: 0.025 * tempoFactor,
-        shootRange: 0.26,
-        shootAggression: 0.38,
-        dribbleRatio: 0.34
+        shootRange: 0.27,
+        shootAggression: 0.40,
+        dribbleRatio: 0.34,
+        decisionDelay: Math.max(4, Math.round(11 / tempoFactor))
       };
     };
 
@@ -198,11 +220,22 @@ export function startLiveMatch(homeId, awayId, onFinish) {
         if (inGoalMouth && ball.isShot) {
           gh++;
           const scorer = ball.shooter;
-          const sName = scorer?.name?.split(" ").pop() || "Delantero";
+          const fullName = scorer?.name || "Delantero";
+          const sName = fullName.split(" ").pop();
           newEvents.unshift(`⚽ ${currentMin}' - ¡GOOOL de ${sName}! (${m.homeName} ${gh}-${ga} ${m.awayName})`);
           if (scorer) {
-            newScorers.push({ playerId: scorer.playerId, name: scorer.name, clubId: m.homeId, minute: currentMin });
+            newScorers.push({ playerId: scorer.playerId, name: fullName, clubId: m.homeId, minute: currentMin });
           }
+          newGoalBanner = {
+            scorerName: fullName,
+            clubName: m.homeName,
+            colors: m.homeColors,
+            minute: currentMin,
+            scoreText: `${m.homeName} ${gh} - ${ga} ${m.awayName}`,
+            timer: 38,
+            maxTimer: 38,
+            goalSide: "right"
+          };
           kickoffReset(ball, homeAgents, awayAgents, "away");
         } else {
           const awayGk = awayAgents[0];
@@ -214,11 +247,22 @@ export function startLiveMatch(homeId, awayId, onFinish) {
         if (inGoalMouth && ball.isShot) {
           ga++;
           const scorer = ball.shooter;
-          const sName = scorer?.name?.split(" ").pop() || "Delantero";
+          const fullName = scorer?.name || "Delantero";
+          const sName = fullName.split(" ").pop();
           newEvents.unshift(`⚽ ${currentMin}' - ¡GOOOL de ${sName}! (${m.homeName} ${gh}-${ga} ${m.awayName})`);
           if (scorer) {
-            newScorers.push({ playerId: scorer.playerId, name: scorer.name, clubId: m.awayId, minute: currentMin });
+            newScorers.push({ playerId: scorer.playerId, name: fullName, clubId: m.awayId, minute: currentMin });
           }
+          newGoalBanner = {
+            scorerName: fullName,
+            clubName: m.awayName,
+            colors: m.awayColors,
+            minute: currentMin,
+            scoreText: `${m.homeName} ${gh} - ${ga} ${m.awayName}`,
+            timer: 38,
+            maxTimer: 38,
+            goalSide: "left"
+          };
           kickoffReset(ball, homeAgents, awayAgents, "home");
         } else {
           const homeGk = homeAgents[0];
@@ -271,7 +315,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
               ball.ownerId = a.id;
               ball.isShot = false;
               ball.stealCooldown = 14;
-              a.decisionTimer = 10;
+              a.decisionTimer = profile.decisionDelay;
             }
           }
           return;
@@ -283,7 +327,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
           const dirX = isHome ? 1 : -1;
 
           const centerPull = (0.5 - a.y) * 0.35;
-          a.vx = dirX * speed * 0.92;
+          a.vx = dirX * speed * 0.95;
           a.vy = centerPull * speed;
           a.x = Math.max(0.05, Math.min(0.95, a.x + a.vx));
           a.y = Math.max(0.07, Math.min(0.93, a.y + a.vy));
@@ -292,7 +336,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
           if (a.decisionTimer > 0) return;
 
           const nearestEnemyDist = enemyAgents.reduce((min, e) => Math.min(min, Math.hypot(e.x - a.x, e.y - a.y)), 99);
-          const underPressure = nearestEnemyDist < 0.075;
+          const underPressure = nearestEnemyDist < 0.08;
 
           if (distGoal <= profile.shootRange && Math.abs(a.y - 0.5) < 0.30) {
             if (Math.random() < profile.shootAggression || distGoal < 0.17) {
@@ -319,11 +363,11 @@ export function startLiveMatch(homeId, awayId, onFinish) {
               t.id !== a.id &&
               t.posType !== "POR" &&
               (isHome ? t.x > a.x + 0.03 : t.x < a.x - 0.03) &&
-              Math.hypot(t.x - a.x, t.y - a.y) < 0.42
+              Math.hypot(t.x - a.x, t.y - a.y) < 0.44
             );
             const safeOptions = agents.filter(t =>
               t.id !== a.id &&
-              Math.hypot(t.x - a.x, t.y - a.y) < 0.34
+              Math.hypot(t.x - a.x, t.y - a.y) < 0.35
             );
 
             const candidates = forwardOptions.length > 0 ? forwardOptions : safeOptions;
@@ -342,7 +386,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
             }
           }
 
-          a.decisionTimer = 9;
+          a.decisionTimer = profile.decisionDelay;
           return;
         }
 
@@ -358,14 +402,14 @@ export function startLiveMatch(homeId, awayId, onFinish) {
             ball.ownerTeam = teamKey;
             ball.ownerId = a.id;
             ball.isShot = false;
-            a.decisionTimer = 8;
+            a.decisionTimer = profile.decisionDelay;
           }
           return;
         }
 
         if (carrier && !teamHasBall && a === chaser && distBall < profile.pressRange) {
-          a.vx = ((carrier.x - a.x) / (distBall || 1)) * speed * 1.08;
-          a.vy = ((carrier.y - a.y) / (distBall || 1)) * speed * 1.08;
+          a.vx = ((carrier.x - a.x) / (distBall || 1)) * speed * 1.12;
+          a.vy = ((carrier.y - a.y) / (distBall || 1)) * speed * 1.12;
           a.x += a.vx;
           a.y += a.vy;
 
@@ -375,7 +419,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
               ball.ownerTeam = teamKey;
               ball.ownerId = a.id;
               ball.stealCooldown = 12;
-              a.decisionTimer = 9;
+              a.decisionTimer = profile.decisionDelay;
             } else {
               ball.stealCooldown = 8;
             }
@@ -383,19 +427,20 @@ export function startLiveMatch(homeId, awayId, onFinish) {
           return;
         }
 
-        const ballShiftX = (ball.x - 0.5) * 0.24;
-        const ballShiftY = (ball.y - 0.5) * 0.18;
+        // Posicionamiento táctico estructurado: responde visiblemente a Defensivo / Equilibrado / Ofensivo
+        const ballShiftX = (ball.x - 0.5) * 0.14;
+        const ballShiftY = (ball.y - 0.5) * 0.16;
         const supportAdvance = (teamHasBall && (a.posType === "DEL" || a.posType === "MED"))
-          ? (isHome ? 0.06 : -0.06)
+          ? (isHome ? 0.05 : -0.05)
           : 0;
-        const microMoveX = Math.sin(nextTick * 0.04 + a.noiseOffset) * 0.015;
-        const microMoveY = Math.cos(nextTick * 0.04 + a.noiseOffset) * 0.015;
+        const microMoveX = Math.sin(nextTick * 0.04 + a.noiseOffset) * 0.012;
+        const microMoveY = Math.cos(nextTick * 0.04 + a.noiseOffset) * 0.012;
 
         const targetX = Math.max(0.08, Math.min(0.92, a.baseX + shiftX + ballShiftX + supportAdvance + microMoveX));
         const targetY = Math.max(0.08, Math.min(0.92, a.baseY + ballShiftY + microMoveY));
 
-        a.vx = (targetX - a.x) * 0.06;
-        a.vy = (targetY - a.y) * 0.06;
+        a.vx = (targetX - a.x) * 0.09;
+        a.vy = (targetY - a.y) * 0.09;
         a.x += a.vx;
         a.y += a.vy;
       });
@@ -417,6 +462,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
         tick: nextTick,
         gh,
         ga,
+        goalBanner: newGoalBanner || m.goalBanner,
         stats: newStats,
         ball,
         homeAgents,
@@ -609,4 +655,60 @@ export function drawPitch(canvas, liveMatch) {
   ctx.strokeStyle = "#000000";
   ctx.lineWidth = 1.2;
   ctx.stroke();
+
+  // ANIMACIÓN DE CELEBRACIÓN DE GOL
+  if (liveMatch.goalBanner && liveMatch.goalBanner.timer > 0) {
+    const gb = liveMatch.goalBanner;
+    const progress = 1 - (gb.timer / gb.maxTimer);
+
+    const gx = gb.goalSide === "right" ? w - padX : padX;
+    const gy = h / 2;
+    ctx.save();
+    ctx.strokeStyle = `rgba(250, 204, 21, ${1 - progress})`;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(gx, gy, 15 + progress * 110, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(9, 13, 22, 0.55)";
+    ctx.fillRect(0, 0, w, h);
+
+    const scale = progress < 0.18 ? (progress / 0.18) * 1.06 : progress < 0.28 ? 1.06 - ((progress - 0.18) / 0.1) * 0.06 : 1;
+    ctx.translate(w / 2, h / 2);
+    ctx.scale(scale, scale);
+
+    const cardW = 390;
+    const cardH = 148;
+    const c1 = gb.colors?.[0] || "#2563eb";
+    const c2 = gb.colors?.[1] || "#facc15";
+
+    ctx.fillStyle = "#0f172a";
+    ctx.beginPath();
+    ctx.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 14);
+    ctx.fill();
+
+    ctx.strokeStyle = c2;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.fillStyle = c1;
+    ctx.beginPath();
+    ctx.roundRect(-cardW / 2, -cardH / 2, 14, cardH, [14, 0, 0, 14]);
+    ctx.fill();
+
+    ctx.fillStyle = "#facc15";
+    ctx.font = "900 32px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("⚽ ¡GOOOL!", 6, -24);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 18px system-ui, sans-serif";
+    ctx.fillText(`${gb.scorerName}  •  Min ${gb.minute}'`, 6, 12);
+
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "bold 13px system-ui, sans-serif";
+    ctx.fillText(gb.scoreText, 6, 42);
+
+    ctx.restore();
+  }
 }
