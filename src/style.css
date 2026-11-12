@@ -44,19 +44,24 @@ body {
   display: grid;
   grid-template-columns: 268px 1fr;
   min-height: 100vh;
+  width: 100%;
 }
 
 .fm-sidebar {
   background: var(--sidebar-bg);
   backdrop-filter: blur(18px);
   border-right: 1px solid var(--panel-border);
-  padding: 22px 16px;
+  padding: 18px 14px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  gap: 12px;
   position: sticky;
   top: 0;
   height: 100vh;
+  max-height: 100vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
   z-index: 20;
 }
 
@@ -65,9 +70,9 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-top: 2px solid var(--club-accent, #3b82f6);
   border-radius: 16px;
-  padding: 16px 14px;
+  padding: 14px 12px;
   text-align: center;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
 }
 
@@ -86,7 +91,7 @@ body {
   background: transparent;
   color: var(--text-muted);
   border: 1px solid transparent;
-  padding: 11px 14px;
+  padding: 10px 13px;
   border-radius: 11px;
   font-size: 13.5px;
   font-weight: 700;
@@ -111,6 +116,7 @@ body {
   padding: 22px 28px 48px;
   max-width: 1320px;
   width: 100%;
+  min-width: 0;
   margin: 0 auto;
 }
 
@@ -209,7 +215,7 @@ body {
 
 .fm-grid-2 {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 20px;
 }
 
@@ -426,23 +432,51 @@ input[type="range"].tactic-slider::-webkit-slider-thumb {
   box-shadow: 0 0 10px rgba(59, 130, 246, 0.75);
 }
 
-/* Responsive para móviles y tablets */
-@media (max-width: 860px) {
+/* Compactación automática en ventanas bajas (sin maximizar) */
+@media (max-height: 800px) {
+  .fm-sidebar {
+    padding: 10px 11px;
+    gap: 8px;
+  }
+  .fm-sidebar-club {
+    padding: 9px 10px;
+    margin-bottom: 8px;
+  }
+  .fm-sidebar-club svg {
+    width: 44px;
+    height: 44px;
+  }
+  .fm-sidebar-club h2 {
+    font-size: 15px !important;
+  }
+  .nav-tab {
+    padding: 7px 10px;
+    font-size: 12.5px;
+  }
+}
+
+/* Responsive para ventanas estrechas, tablets y móviles */
+@media (max-width: 960px) {
   .fm-app-shell {
     grid-template-columns: 1fr;
   }
   .fm-sidebar {
     position: static;
     height: auto;
+    max-height: none;
+    overflow-y: visible;
     border-right: none;
     border-bottom: 1px solid var(--panel-border);
   }
   .fm-sidebar-nav {
     flex-direction: row;
-    overflow-x: auto;
+    flex-wrap: wrap;
+    gap: 6px;
   }
   .nav-tab {
     width: auto;
+    flex: 1 1 auto;
+    justify-content: center;
     white-space: nowrap;
   }
   .fm-workspace {
