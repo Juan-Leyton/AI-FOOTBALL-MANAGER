@@ -26,7 +26,7 @@ export function renderPlayerProfileModal(state, playerId) {
 
   const isFreeAgent = p.clubId === "free_agent";
   const club = isFreeAgent
-    ? { name: "Agente Libre", colors: ["#10b981", "#0f172a"], flag: "🆓" }
+    ? { name: p.isWorldIcon ? "Leyenda Histórica" : "Agente Libre", colors: p.isWorldIcon ? ["#eab308", "#0f172a"] : ["#10b981", "#0f172a"], flag: p.isWorldIcon ? "👑" : "🆓" }
     : (state.clubs?.[p.clubId] || { name: "Sin Club", colors: ["#334155", "#94a3b8"], flag: "⚽" });
 
   const isOwn = p.clubId === state.userClubId;
@@ -49,8 +49,9 @@ export function renderPlayerProfileModal(state, playerId) {
   const canLoan = !isOwn && !isFreeAgent && !p.isLoaned && (state.budget || 0) >= loanVal;
   const statusBadge = getPlayerStatusBadge(p);
 
-  const ovrColor = p.ovr >= 85 ? "#fde047" : p.ovr >= 78 ? "#7dd3fc" : "#e2e8f0";
-  const roleLabel = p.age <= 21 ? "Promesa Sub-21" : p.age <= 28 ? "Plenitud Futbolística" : "Jugador Experimentado";
+  const ovrColor = p.ovr >= 90 ? "#facc15" : p.ovr >= 85 ? "#fde047" : p.ovr >= 78 ? "#7dd3fc" : "#e2e8f0";
+  const roleLabel = p.isWorldIcon ? "Ícono Histórico Mundial" : p.age <= 21 ? "Promesa Sub-21" : p.age <= 28 ? "Plenitud Futbolística" : "Jugador Experimentado";
+  const natDisplay = `${p.flag || "🌍"} ${p.nationality || "Internacional"}`;
 
   return `
     <div id="player-modal-backdrop" style="position:fixed; inset:0; background:rgba(3,7,18,0.84); backdrop-filter:blur(6px); z-index:9999; display:flex; align-items:center; justify-content:center; padding:16px; overflow-y:auto;">
@@ -66,11 +67,12 @@ export function renderPlayerProfileModal(state, playerId) {
               <span class="fm-badge-pos">${p.pos}</span>
               ${p.secondaryPos ? `<span style="font-size:10px; color:#94a3b8; border:1px solid rgba(255,255,255,0.15); padding:1px 6px; border-radius:4px;">Alt: ${p.secondaryPos}</span>` : ""}
               <span style="font-size:11px; font-weight:800; color:#94a3b8; text-transform:uppercase;">${club.flag || ""} ${club.name}</span>
+              ${p.isWorldIcon ? `<span style="background:rgba(234,179,8,0.22); color:#facc15; border:1px solid rgba(234,179,8,0.45); font-size:10px; padding:2px 7px; border-radius:5px; font-weight:900;">👑 ÍCONO</span>` : ""}
               ${p.isYouth ? `<span style="background:rgba(59,130,246,0.25); color:#60a5fa; font-size:10px; padding:2px 7px; border-radius:5px; font-weight:800;">CANTERA</span>` : ""}
               ${p.isLoaned ? `<span style="background:rgba(168,85,247,0.25); color:#d8b4fe; font-size:10px; padding:2px 7px; border-radius:5px; font-weight:800;">CEDIDO</span>` : ""}
             </div>
-            <h2 style="font-size:21px; font-weight:900; margin:4px 0 2px; letter-spacing:-0.01em;">${p.name}</h2>
-            <div style="font-size:12px; color:var(--text-muted);">${p.age} años • ${roleLabel} ${p.potential ? `• POT <b style="color:#34d399;">${p.potential}</b>` : ""}</div>
+            <h2 style="font-size:21px; font-weight:900; margin:4px 0 2px; letter-spacing:-0.01em;">${p.flag || ""} ${p.name}</h2>
+            <div style="font-size:12px; color:var(--text-muted);">${natDisplay} • ${p.age} años • ${roleLabel} ${p.potential ? `• POT <b style="color:#34d399;">${p.potential}</b>` : ""}</div>
           </div>
           <div style="text-align:center; background:rgba(6,9,19,0.85); border:1px solid rgba(255,255,255,0.14); padding:10px 14px; border-radius:12px;">
             <div style="font-size:10px; font-weight:800; color:var(--text-muted); letter-spacing:0.06em;">MEDIA</div>
@@ -110,7 +112,7 @@ export function renderPlayerProfileModal(state, playerId) {
             <div>
               <div style="font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:10px;">Situación Contractual</div>
               <div style="font-size:13px; margin-bottom:8px;">
-                ${isFreeAgent ? "Prima de Fichaje Libre:" : "Valor de Mercado:"}<br>
+                ${isFreeAgent ? "Prima de Fichaje:" : "Valor de Mercado:"}<br>
                 <b style="font-size:17px; color:#34d399;">${(marketVal / 1e6).toFixed(2)} M€</b>
               </div>
               <div style="font-size:12.5px; color:var(--text-muted); margin-bottom:8px;">
@@ -161,7 +163,7 @@ export function renderPlayerProfileModal(state, playerId) {
             ` : ""}
           ` : isFreeAgent ? `
             <button class="btn-modal-free-agent fm-btn ${canBuy ? "fm-btn-primary" : ""}" data-pid="${p.id}" ${!canBuy ? "disabled" : ""} style="${!canBuy ? "background:#334155; opacity:0.45; cursor:not-allowed;" : ""}">
-              🆓 Fichar Libre (${(marketVal / 1e6).toFixed(2)} M€ prima)
+              ${p.isWorldIcon ? "👑 Fichar Leyenda" : "🆓 Fichar Libre"} (${(marketVal / 1e6).toFixed(2)} M€ prima)
             </button>
           ` : `
             <button class="btn-modal-loan fm-btn fm-btn-ghost" data-pid="${p.id}" ${!canLoan ? "disabled" : ""} style="border-color:rgba(168,85,247,0.5); color:#d8b4fe; ${!canLoan ? "opacity:0.45; cursor:not-allowed;" : ""}">

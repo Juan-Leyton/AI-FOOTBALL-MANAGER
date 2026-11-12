@@ -19,8 +19,13 @@ function ensureToastContainer() {
   return toastContainer;
 }
 
-export function showToast(message, type = "info", duration = 3800) {
+export function showToast(message, type = "info", duration = 3200) {
   const container = ensureToastContainer();
+
+  // Limitar a máximo 2 notificaciones visibles a la vez
+  while (container.children.length >= 2) {
+    container.firstElementChild?.remove();
+  }
 
   const palette = {
     success: { bg: "rgba(6, 78, 59, 0.96)", border: "#10b981", icon: "✅" },
@@ -37,7 +42,7 @@ export function showToast(message, type = "info", duration = 3800) {
     border: 1px solid ${theme.border};
     border-left: 4px solid ${theme.border};
     color: #f8fafc;
-    padding: 12px 14px;
+    padding: 11px 14px;
     border-radius: 10px;
     font-size: 13px;
     font-weight: 600;
@@ -48,7 +53,7 @@ export function showToast(message, type = "info", duration = 3800) {
     gap: 9px;
     opacity: 0;
     transform: translateY(12px);
-    transition: opacity 0.22s ease, transform 0.22s ease;
+    transition: opacity 0.2s ease, transform 0.2s ease;
   `;
 
   toast.innerHTML = `
@@ -66,6 +71,6 @@ export function showToast(message, type = "info", duration = 3800) {
   setTimeout(() => {
     toast.style.opacity = "0";
     toast.style.transform = "translateY(8px)";
-    setTimeout(() => toast.remove(), 240);
+    setTimeout(() => toast.remove(), 220);
   }, duration);
 }

@@ -1,16 +1,56 @@
 import { store } from "../core/state.js";
-import { getNextUserEvent, completeRoundWithUserResult, initCompetitions, getClubLeagueObj } from "../engine/competitions.js";
-import { startLiveMatch, togglePauseMatch, setTactic, makeLiveSubstitution, FORMATIONS, assignPlayersToSlots } from "../engine/match-live.js";
-import { calculateMarketValue, buyPlayer, sellPlayer, maybeGenerateIncomingOffer, respondToTransferOffer } from "../engine/transfers.js";
+import {
+  getNextUserEvent,
+  completeRoundWithUserResult,
+  initCompetitions,
+  getClubLeagueObj
+} from "../engine/competitions.js";
+import {
+  startLiveMatch,
+  togglePauseMatch,
+  setTactic,
+  makeLiveSubstitution,
+  FORMATIONS,
+  assignPlayersToSlots
+} from "../engine/match-live.js";
+import {
+  calculateMarketValue,
+  buyPlayer,
+  sellPlayer,
+  maybeGenerateIncomingOffer,
+  respondToTransferOffer
+} from "../engine/transfers.js";
 import { makeLowballOffer, loanPlayer } from "../engine/market-advanced.js";
 import { runEndOfSeasonTransition } from "../engine/season-transition.js";
 import { autoPickBestXI } from "../engine/squad-manager.js";
 import { simulateQuickMatch } from "../engine/quick-sim.js";
-import { SCOUTING_REGIONS, scoutYouthRegion, signProspectToAcademy, promoteAcademyPlayerToFirstTeam, releaseAcademyPlayer } from "../engine/youth-scouting.js";
-import { ensureFreeAgentsPool, getFreeAgentSignBonus, signFreeAgent, retrainPlayerPosition, applyIndividualFocus } from "../engine/player-development.js";
-import { MANAGER_PERKS, ensureCareerHooksState, grantManagerXp, unlockManagerPerk, evaluateObjectivesProgress } from "../engine/career-hooks.js";
+import {
+  SCOUTING_REGIONS,
+  scoutYouthRegion,
+  signProspectToAcademy,
+  promoteAcademyPlayerToFirstTeam,
+  releaseAcademyPlayer
+} from "../engine/youth-scouting.js";
+import {
+  ensureFreeAgentsPool,
+  getFreeAgentSignBonus,
+  signFreeAgent,
+  retrainPlayerPosition,
+  applyIndividualFocus
+} from "../engine/player-development.js";
+import {
+  MANAGER_PERKS,
+  ensureCareerHooksState,
+  grantManagerXp,
+  unlockManagerPerk,
+  evaluateObjectivesProgress
+} from "../engine/career-hooks.js";
 import { processSeasonRetirementsAndRegens } from "../engine/world-longevity.js";
-import { startMultiplayerCareer, switchActiveManager, syncCurrentManagerSnapshot } from "../engine/multiplayer-local.js";
+import {
+  startMultiplayerCareer,
+  switchActiveManager,
+  syncCurrentManagerSnapshot
+} from "../engine/multiplayer-local.js";
 import {
   createOnlineRoom,
   fetchOnlineRoom,
@@ -22,20 +62,28 @@ import {
 } from "../engine/multiplayer-online.js";
 import { injectCustomLegends } from "../data/custom-legends.js";
 import { triggerPostMatchEvent, resolveInboxChoice } from "../ai/director.js";
-import { processRoundProgression, renewPlayerContract, recordMatchInCareer } from "../engine/progression.js";
+import {
+  processRoundProgression,
+  renewPlayerContract,
+  recordMatchInCareer
+} from "../engine/progression.js";
 import { STAFF_CATALOG, getStaffUpgradeCost, upgradeStaff } from "../engine/staff.js";
 import { TRAINING_PLANS, setTrainingPlan } from "../engine/training.js";
 import { getPlayerAttributes, promoteYouthProspect } from "../engine/academy.js";
 import { toggleMute, isAudioMuted } from "../engine/audio.js";
 import { getClubStadium, calculateMatchAttendance } from "../engine/stadium.js";
-import { isPlayerUnavailable, getPlayerStatusBadge, applyPostMatchMedicalAndCards, advanceMedicalRecovery } from "../engine/medical.js";
+import {
+  isPlayerUnavailable,
+  getPlayerStatusBadge,
+  applyPostMatchMedicalAndCards,
+  advanceMedicalRecovery
+} from "../engine/medical.js";
 import { registerPostMatchPressAndRecords } from "../engine/press-locker-records.js";
 import { LEAGUES_CATALOG, buildWorldDatabase } from "../data/world-database.js";
 import { renderEnhancedPitch } from "./pitch-renderer.js";
 import { renderPlayerProfileModal } from "./player-modal.js";
 import { renderTacticsExtrasUI } from "./tactics-extras.js";
-import { renderMarketEconomyExtrasUI } from "./market-economy-extras.js";
-import { renderPressLockerExtrasUI } from "./press-locker-extras.js";
+import { renderWorldExpansionUI } from "./world-expansion-ui.js";
 import { showToast } from "./toast.js";
 import { renderClubBadge } from "./badges.js";
 
@@ -72,8 +120,8 @@ export function initUI() {
       draft.liveMatch = null;
       if (!draft.competitions?.league_1?.schedule?.length) {
         draft.competitions = initCompetitions(draft.clubs, draft.userClubId);
-        draft.activeCompId = "league_1";
       }
+      draft.activeCompId = "league_1";
     });
   }
 
@@ -158,6 +206,7 @@ function render() {
   if (!state.userClubId) {
     lastLiveLayoutKey = "";
     root.innerHTML = renderClubSelection(state);
+    renderWorldExpansionUI();
     return;
   }
 
@@ -183,6 +232,7 @@ function render() {
   }
 
   lastLiveLayoutKey = "";
+
   const activeEl = document.activeElement;
   const wasSearching = activeEl && activeEl.id === "market-search-input";
   const cursorPos = wasSearching ? activeEl.selectionStart : null;
@@ -212,15 +262,15 @@ function render() {
           <div class="fm-sidebar-club" style="--club-accent: ${userClub.colors[0]}; background: linear-gradient(165deg, ${userClub.colors[0]}38, rgba(9,13,22,0.96) 65%);">
             ${isMp && activeMgr ? `
               <div style="background:rgba(59,130,246,0.22); border:1px solid rgba(59,130,246,0.45); color:#93c5fd; font-size:10.5px; font-weight:800; padding:3px 8px; border-radius:99px; margin-bottom:8px;">
-                ${isOnline ? '🌐' : '👤'} ${activeMgr.name.toUpperCase()}
+                ${isOnline ? "🌐" : "👤"} ${activeMgr.name.toUpperCase()}
               </div>
             ` : ""}
-            <div style="margin: 0 auto 8px; display:flex; justify-content:center; filter: drop-shadow(0 6px 14px rgba(0,0,0,0.65));">
+            <div style="margin: 0 auto 8px; display: flex; justify-content:center; filter: drop-shadow(0 6px 14px rgba(0,0,0,0.65));">
               ${renderClubBadge(userClub, 56)}
             </div>
             <h2 style="font-size: 16px; font-weight: 900; letter-spacing: -0.01em; margin-bottom: 2px;">${userClub.name}</h2>
             <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">
-              ${userClub.flag || "⚽"} ${userClub.leagueName || "Primera División"} • T${state.season || 1} J${Math.min(22, leagueRound)}/22
+              ${userClub.flag || ""} ${userClub.leagueName || "Primera División"} • T${state.season || 1} J${Math.min(22, leagueRound)}/22
             </div>
             <div style="text-align:left; font-size:11px; color:var(--text-muted); margin-bottom:4px;">Confianza Directiva</div>
             ${renderMiniBar(boardConf, confColor)}
@@ -241,27 +291,28 @@ function render() {
                 </div>
               ` : `
                 <button id="btn-publish-online-room" class="fm-btn fm-btn-ghost" style="width:100%; padding:6px 8px; font-size:11px; margin-bottom:7px; border-color:rgba(16,185,129,0.5); color:#34d399; font-weight:800;">
-                  ☁️ Publicar Sala Online
+                  🌐 Publicar Sala Online
                 </button>
               `}
 
               <div style="font-size:10px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px; padding:0 4px;">👥 Mánagers (${state.mpManagers.length})</div>
-              <div style="display:grid; gap:4px; margin-bottom:${isOnline ? '2px' : '7px'};">
+              <div style="display:grid; gap:4px; margin-bottom:${isOnline ? "2px" : "7px"};">
                 ${state.mpManagers.map((m, i) => {
                   const mClub = state.clubs[m.clubId];
                   const mLg = getClubLeagueObj(state.competitions, m.clubId);
                   const doneRound = Boolean(mLg?.playedThisRound?.[m.clubId]);
                   const isCurrent = i === activeMgrIdx;
                   return `
-                    <button class="btn-switch-manager" data-midx="${i}" ${isOnline ? 'disabled' : ''} style="display:flex; justify-content:space-between; align-items:center; width:100%; background:${isCurrent ? 'rgba(59,130,246,0.22)' : 'rgba(15,23,42,0.85)'}; border:1px solid ${isCurrent ? '#3b82f6' : 'rgba(255,255,255,0.07)'}; color:#fff; padding:5px 8px; border-radius:8px; font-size:11px; cursor:${isOnline ? 'default' : 'pointer'}; text-align:left;">
+                    <button class="btn-switch-manager" data-midx="${i}" ${isOnline ? "disabled" : ""} style="display:flex; justify-content:space-between; align-items:center; width:100%; background:${isCurrent ? "rgba(59,130,246,0.22)" : "rgba(15,23,42,0.85)"}; border:1px solid ${isCurrent ? "#3b82f6" : "rgba(255,255,255,0.07)"}; color:#fff; padding:5px 8px; border-radius:8px; font-size:11px; cursor:${isOnline ? "default" : "pointer"}; text-align:left;">
                       <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                         <b>${m.name}</b> <small style="color:var(--text-muted);">(${mClub?.name?.split(" ")[0] || ""})</small>
                       </span>
-                      <span style="font-weight:800; color:${doneRound ? '#34d399' : '#fbbf24'};">${doneRound ? '✓' : '⏳'}</span>
+                      <span style="font-weight:800; color:${doneRound ? "#34d399" : "#fbbf24"};">${doneRound ? "✓" : "⏳"}</span>
                     </button>
                   `;
                 }).join("")}
               </div>
+
               ${!isOnline ? `
                 <button id="btn-next-manager-turn" class="fm-btn fm-btn-primary" style="width:100%; padding:6px 8px; font-size:11px;">
                   🔄 Pasar Turno → ${nextMgr?.name || ""}
@@ -291,7 +342,7 @@ function render() {
             </button>
           ` : ""}
           <button id="btn-reset" class="fm-btn fm-btn-ghost" style="width: 100%; font-size: 11.5px; padding: 7px 10px;">
-            Nueva Partida
+            🔄 Nueva Partida
           </button>
         </div>
       </aside>
@@ -301,9 +352,9 @@ function render() {
           <div class="fm-kpi-group">
             ${isMp && activeMgr ? `
               <div class="fm-kpi-pill" style="border-color:rgba(59,130,246,0.45);">
-                <span>${isOnline ? '🌐' : '👤'}</span>
+                <span>${isOnline ? "🌐" : "👤"}</span>
                 <div>
-                  <small>${isOnline ? `SALA ${state.onlineRoomCode}` : 'MÁNAGER ACTIVO'}</small><br>
+                  <small>${isOnline ? `SALA ${state.onlineRoomCode}` : "MÁNAGER ACTIVO"}</small><br>
                   <b style="color: #93c5fd;">${activeMgr.name}</b>
                 </div>
               </div>
@@ -316,17 +367,17 @@ function render() {
               </div>
             </div>
             <div class="fm-kpi-pill">
-              <span>⭐</span>
+              <span>📊</span>
               <div>
                 <small>MEDIA CLUB</small><br>
                 <b>OVR ${userClub.ovr}</b>
               </div>
             </div>
             <div class="fm-kpi-pill">
-              <span>🎖️</span>
+              <span>⭐</span>
               <div>
                 <small>NIVEL ${mp.level}</small><br>
-                <b style="color: #60a5fa;">${mp.xp} / ${mp.nextLevelXp} XP</b>
+                <b style="color: #60a5fa;">${mp.xp}/${mp.nextLevelXp} XP</b>
               </div>
             </div>
             <div class="fm-kpi-pill">
@@ -357,8 +408,7 @@ function render() {
   `;
 
   renderTacticsExtrasUI();
-  renderMarketEconomyExtrasUI();
-  renderPressLockerExtrasUI();
+  renderWorldExpansionUI();
   bindEvents(state);
 
   if (wasSearching) {
@@ -477,6 +527,7 @@ function renderHomeTab(state) {
     const isCup = nextEvent.compId === "cup_1";
     const isCont = nextEvent.compId === "cont_1";
     const isUserHome = hId === state.userClubId;
+
     const humanManagers = state.mpManagers || [];
     const homeMgr = humanManagers.find(m => m.clubId === hId);
     const awayMgr = humanManagers.find(m => m.clubId === aId);
@@ -488,12 +539,12 @@ function renderHomeTab(state) {
       nextEvent.compId,
       isUserHome ? (state.staff?.stadium || 1) : 1
     );
-    matchTitle = nextEvent.compName;
 
+    matchTitle = nextEvent.compName;
     matchCard = `
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
         <div style="display:flex; flex-wrap:wrap; gap:6px;">
-          ${isPvpDuel ? `<span style="display:inline-block; background:linear-gradient(90deg, #ef4444, #f97316); color:#fff; font-weight:900; font-size:11px; padding:3px 10px; border-radius:6px; letter-spacing:0.04em;">⚔️ DUELO PvP: ${homeMgr.name} vs ${awayMgr.name}</span>` : ""}
+          ${isPvpDuel ? `<span style="display:inline-block; background:linear-gradient(90deg, #ef4444, #f97316); color:#fff; font-weight:900; font-size:11px; padding:3px 10px; border-radius:6px; letter-spacing:0.04em;">🔥 DUELO PvP: ${homeMgr.name} vs ${awayMgr.name}</span>` : ""}
           ${isCont ? `<span style="display:inline-block; background:linear-gradient(90deg, #2563eb, #3b82f6); color:#fff; font-weight:800; font-size:11px; padding:3px 10px; border-radius:6px; letter-spacing:0.04em;">🌍 COPA CONTINENTAL ÉLITE</span>` : ""}
           ${isCup ? `<span style="display:inline-block; background:linear-gradient(90deg, #d97706, #f59e0b); color:#000; font-weight:800; font-size:11px; padding:3px 10px; border-radius:6px; letter-spacing:0.04em;">🏆 ELIMINATORIA DE COPA</span>` : ""}
         </div>
@@ -505,7 +556,7 @@ function renderHomeTab(state) {
         <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;">
           ${renderClubBadge(home, 44)}
           <b style="font-size: 14px;">${home.name}</b>
-          <span style="font-size: 11px; color: var(--text-muted);">${homeMgr ? `👤 ${homeMgr.name} • ` : `${home.flag || ""} `}OVR ${home.ovr}</span>
+          <span style="font-size: 11px; color: var(--text-muted);">${homeMgr ? `👤 ${homeMgr.name}` : `${home.flag || ""} `}OVR ${home.ovr}</span>
         </div>
         <div style="text-align: center;">
           <div style="font-size: 13px; font-weight: 900; color: var(--text-muted); letter-spacing: 0.14em;">VS</div>
@@ -513,7 +564,7 @@ function renderHomeTab(state) {
         <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;">
           ${renderClubBadge(away, 44)}
           <b style="font-size: 14px;">${away.name}</b>
-          <span style="font-size: 11px; color: var(--text-muted);">${awayMgr ? `👤 ${awayMgr.name} • ` : `${away.flag || ""} `}OVR ${away.ovr}</span>
+          <span style="font-size: 11px; color: var(--text-muted);">${awayMgr ? `👤 ${awayMgr.name}` : `${away.flag || ""} `}OVR ${away.ovr}</span>
         </div>
       </div>
       <div style="display:grid; grid-template-columns: 1.4fr 1fr; gap:8px; margin-top:10px;">
@@ -601,7 +652,7 @@ function renderHomeTab(state) {
 
       <div class="fm-card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <h3 style="margin:0;">🎖️ Perks de Mánager (Nivel ${mp.level})</h3>
+          <h3 style="margin:0;">🧠 Perks de Mánager (Nivel ${mp.level})</h3>
           <span style="background:${(mp.skillPoints || 0) > 0 ? 'rgba(250,204,21,0.22)' : 'rgba(30,41,59,0.85)'}; color:${(mp.skillPoints || 0) > 0 ? '#fde047' : 'var(--text-muted)'}; border:1px solid ${(mp.skillPoints || 0) > 0 ? 'rgba(250,204,21,0.5)' : 'var(--panel-border)'}; padding:3px 10px; border-radius:99px; font-size:11.5px; font-weight:800;">
             ${mp.skillPoints || 0} Puntos disp.
           </span>
@@ -660,7 +711,7 @@ function renderSquadTab(state) {
         <table class="fm-table">
           <thead>
             <tr>
-              <th>Rol / Estado</th>
+              <th>Rol/Estado</th>
               <th>Jugador y Atributos</th>
               <th>Pos</th>
               <th>OVR</th>
@@ -688,6 +739,7 @@ function renderSquadTab(state) {
               const years = p.contractYears ?? 2;
               const contractColor = years <= 1 ? 'var(--danger)' : 'var(--text-muted)';
               const sellVal = Math.round(calculateMarketValue(p, 1) * 0.85);
+
               return `
                 <tr class="${p.starter && !unavail ? 'highlight-row' : ''}" style="${unavail ? 'opacity:0.78;' : ''}">
                   <td>
@@ -699,7 +751,7 @@ function renderSquadTab(state) {
                   </td>
                   <td>
                     <span class="btn-inspect-player" data-pid="${p.id}" style="cursor:pointer; font-weight:800; text-decoration:underline; text-decoration-color:rgba(255,255,255,0.28); text-underline-offset:3px;">${p.name}</span>
-                    ${p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">★ LEYENDA</span>` : p.isRegen ? `<span style="background:rgba(16,185,129,0.22); color:#34d399; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">REGEN</span>` : p.isYouth ? `<span style="background:rgba(59,130,246,0.25); color:#60a5fa; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CANTERA</span>` : ""}
+                    ${p.isWorldIcon ? `<span style="background:rgba(234,179,8,0.22); color:#facc15; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">👑 ÍCONO</span>` : p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">★ LEYENDA</span>` : p.isRegen ? `<span style="background:rgba(16,185,129,0.22); color:#34d399; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">REGEN</span>` : p.isYouth ? `<span style="background:rgba(59,130,246,0.25); color:#60a5fa; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CANTERA</span>` : ""}
                     ${p.isLoaned ? `<span style="background:rgba(168,85,247,0.25); color:#d8b4fe; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CEDIDO</span>` : ""}
                     <small style="color: var(--text-muted);">(${p.age}a)</small>
                     ${(p.yellowCardsSeason || 0) > 0 ? `<span style="margin-left:4px; font-size:10px; color:#facc15; font-weight:700;">🟨 ${p.yellowCardsSeason}/5</span>` : ""}
@@ -714,7 +766,7 @@ function renderSquadTab(state) {
                   <td>${renderOvrBadge(p.ovr)}</td>
                   <td style="min-width:95px;">${renderMiniBar(morale, moraleColor)}</td>
                   <td style="min-width:95px;">${renderMiniBar(p.stamina, stamColor)}</td>
-                  <td style="color: ${contractColor}; font-weight: 700; white-space:nowrap;">${p.isLoaned ? 'Cesión 1a' : `${years} ${years === 1 ? 'año ⚠️' : 'años'}`}</td>
+                  <td style="color: ${contractColor}; font-weight: 700; white-space:nowrap;">${p.isLoaned ? "Cesión 1a" : `${years} ${years === 1 ? "año!" : "años"}`}</td>
                   <td style="display: flex; gap: 6px; white-space:nowrap;">
                     ${!p.isLoaned && years < 4 ? `
                       <button class="btn-renew-contract fm-btn fm-btn-primary" data-pid="${p.id}" style="padding: 5px 9px; font-size: 11px;">
@@ -750,7 +802,7 @@ function renderStaffTab(state) {
     <div class="fm-card">
       <div style="display: flex; flex-wrap:wrap; justify-content: space-between; align-items: center; gap:8px; margin-bottom: 12px;">
         <div>
-          <h3 style="margin: 0;">🔭 Red de Ojeadores Juveniles y Academia Sub-18 (${youthAcademy.length}/8)</h3>
+          <h3 style="margin: 0;">🌍 Red de Ojeadores Juveniles y Academia Sub-18 (${youthAcademy.length}/8)</h3>
           <small style="color:var(--text-muted);">Envía ojeadores a países clave, ficha promesas con alto Potencial (POT) y súbelas al primer equipo</small>
         </div>
         <span style="background:rgba(59,130,246,0.2); border:1px solid rgba(59,130,246,0.4); padding:4px 10px; border-radius:8px; font-size: 12px; color: #60a5fa; font-weight: 800;">Academia Nvl ${staff.youth || 1}</span>
@@ -821,8 +873,8 @@ function renderStaffTab(state) {
 
       <div style="padding-top:10px; border-top:1px solid var(--panel-border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
         <span style="font-size:12px; color:var(--text-muted);">Promoción directa rápida de cantera local (1 por temporada):</span>
-        <button id="btn-promote-youth" class="fm-btn fm-btn-ghost" ${youthPromotedThisSeason ? 'disabled style="opacity:0.45; cursor:not-allowed;"' : ''} style="font-size:12px; padding:6px 12px;">
-          ${youthPromotedThisSeason ? '✓ Promoción directa usada esta temporada' : '🌟 Promoción Directa Rápida (1.50 M€)'}
+        <button id="btn-promote-youth" class="fm-btn fm-btn-ghost" ${youthPromotedThisSeason ? 'disabled style="opacity:0.45; cursor:not-allowed;"' : ""} style="font-size:12px; padding:6px 12px;">
+          ${youthPromotedThisSeason ? "✓ Promoción directa usada esta temporada" : "⚡ Promoción Directa Rápida (1.50 M€)"}
         </button>
       </div>
     </div>
@@ -847,7 +899,7 @@ function renderStaffTab(state) {
 
     <div class="fm-card">
       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap:wrap; gap:8px; margin-bottom: 16px;">
-        <h3 style="margin: 0;">Cuerpo Técnico e Infraestructura (🏟️ ${stadium.name}: ${stadium.capacity.toLocaleString()} localidades)</h3>
+        <h3 style="margin: 0;">Cuerpo Técnico e Infraestructura (${stadium.name}: ${stadium.capacity.toLocaleString()} localidades)</h3>
         <span>Presupuesto: <b style="color: var(--success);">${((state.budget || 0) / 1e6).toFixed(2)} M€</b></span>
       </div>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
@@ -861,7 +913,7 @@ function renderStaffTab(state) {
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                   <b>${item.name}</b>
                   <span style="background: rgba(59,130,246,0.2); color: #60a5fa; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 700;">
-                    Nvl ${lvl} / ${item.maxLevel}
+                    Nvl ${lvl}/${item.maxLevel}
                   </span>
                 </div>
                 <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">${item.desc}</p>
@@ -887,7 +939,6 @@ function renderTacticsTab(state) {
   const starters = Object.values(state.players || {})
     .filter(p => p.clubId === state.userClubId && p.starter && !isPlayerUnavailable(p))
     .slice(0, 11);
-
   const assigned = assignPlayersToSlots(starters, formation);
   const outOfPosCount = assigned.filter(a => a.outOfPosition).length;
   const shiftPreview = ((t.mentality - 50) / 50) * 16;
@@ -919,10 +970,10 @@ function renderTacticsTab(state) {
 
           <div style="display: flex; gap: 6px; background: rgba(6,9,19,0.75); padding: 4px; border-radius: 10px; border: 1px solid var(--panel-border);">
             <button class="btn-kit-mode fm-btn ${kitMode === 'home' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-kit="home" style="padding: 4px 10px; font-size: 11px;">
-              👕 1ª Equipación
+              1ª Equipación
             </button>
             <button class="btn-kit-mode fm-btn ${kitMode === 'away' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-kit="away" style="padding: 4px 10px; font-size: 11px;">
-              🎽 2ª Equipación
+              2ª Equipación
             </button>
           </div>
         </div>
@@ -933,7 +984,7 @@ function renderTacticsTab(state) {
           <div style="position: absolute; left: 0; top: 24%; width: 13%; height: 52%; border: 2px solid rgba(255,255,255,0.4); border-left: none;"></div>
           <div style="position: absolute; right: 0; top: 24%; width: 13%; height: 52%; border: 2px solid rgba(255,255,255,0.4); border-right: none;"></div>
 
-          ${assigned.map(({ slot, player, outOfPosition }, idx) => {
+          ${assigned.map(({ slot, player, outOfPosition, idx }) => {
             const isGK = idx === 0;
             const px = isGK ? slot.x * 140 : Math.max(13, Math.min(91, slot.x * 140 + shiftPreview));
             const label = player ? player.name.split(" ").pop() : slot.pos;
@@ -960,6 +1011,7 @@ function renderTacticsTab(state) {
         <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 18px;">
           Define la altura del bloque, el ritmo de pase y la presión en campo rival.
         </p>
+
         <div style="display: grid; gap: 22px;">
           <div>
             <label style="display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 8px;">
@@ -968,6 +1020,7 @@ function renderTacticsTab(state) {
             </label>
             <input type="range" class="tactic-slider" data-key="mentality" min="10" max="95" value="${t.mentality}" style="width: 100%;">
           </div>
+
           <div>
             <label style="display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 8px;">
               <span>Ritmo de Circulación (Lento ↔ Vertiginoso)</span>
@@ -975,6 +1028,7 @@ function renderTacticsTab(state) {
             </label>
             <input type="range" class="tactic-slider" data-key="tempo" min="10" max="95" value="${t.tempo}" style="width: 100%;">
           </div>
+
           <div>
             <label style="display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 8px;">
               <span>Intensidad de Presión (Bloque Bajo ↔ Presión Alta)</span>
@@ -1011,13 +1065,14 @@ function renderTransfersTab(state) {
     if (ageFilter === "VET" && p.age < 29) return false;
     if (minOvrFilter > 0 && p.ovr < minOvrFilter) return false;
     if (queryLower) {
-      const cName = p.clubId === "free_agent" ? "agente libre" : (state.clubs[p.clubId]?.name || "").toLowerCase();
-      if (!p.name.toLowerCase().includes(queryLower) && !cName.includes(queryLower)) return false;
+      const cName = p.clubId === "free_agent" ? "agente libre leyenda" : (state.clubs[p.clubId]?.name || "").toLowerCase();
+      const natName = (p.nationality || "").toLowerCase();
+      if (!p.name.toLowerCase().includes(queryLower) && !cName.includes(queryLower) && !natName.includes(queryLower)) return false;
     }
     return true;
   });
 
-  const marketPlayers = filtered.sort((a, b) => b.ovr - a.ovr).slice(0, 35);
+  const marketPlayers = filtered.sort((a, b) => b.ovr - a.ovr).slice(0, 45);
   const humanManagers = state.mpManagers || [];
 
   return `
@@ -1028,8 +1083,8 @@ function renderTransfersTab(state) {
           <small style="color: var(--text-muted);">Descuento Ojeador Nvl ${scoutLvl}: <b>-${(scoutLvl - 1) * 6}%</b> • Haz clic en un jugador para abrir su ficha</small>
         </div>
         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-          <button class="btn-filter-league fm-btn ${leagueFilter === 'ALL' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="ALL" style="padding: 5px 9px; font-size: 11px;">🌍 Todas</button>
-          <button class="btn-filter-league fm-btn ${leagueFilter === 'FREE' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="FREE" style="padding: 5px 9px; font-size: 11px; border-color:rgba(16,185,129,0.5); color:#34d399;">🆓 Libres (0M)</button>
+          <button class="btn-filter-league fm-btn ${leagueFilter === 'ALL' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="ALL" style="padding: 5px 9px; font-size: 11px;">Todas</button>
+          <button class="btn-filter-league fm-btn ${leagueFilter === 'FREE' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="FREE" style="padding: 5px 9px; font-size: 11px; border-color:rgba(16,185,129,0.5); color:#34d399;">🆓 Libres / Leyendas</button>
           ${LEAGUES_CATALOG.map(l => `
             <button class="btn-filter-league fm-btn ${leagueFilter === l.id ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="${l.id}" style="padding: 5px 9px; font-size: 11px;">
               ${l.flag} ${l.country}
@@ -1040,12 +1095,11 @@ function renderTransfersTab(state) {
 
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-bottom: 14px; background: rgba(6,9,19,0.68); padding: 12px; border-radius: 12px; border: 1px solid var(--panel-border);">
         <div>
-          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">🔍 Buscar Jugador o Club</label>
-          <input id="market-search-input" type="text" value="${searchQuery.replace(/"/g, "&quot;")}" placeholder="Ej: Leyton, Gutierrez, Rave, Galvis..." style="width:100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
+          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">🔍 Buscar Jugador, Club o País</label>
+          <input id="market-search-input" type="text" value="${searchQuery.replace(/"/g, "&quot;")}" placeholder="Ej: Pelé, Maradona, Leyton, Colombia..." style="width:100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
         </div>
-
         <div>
-          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">🎂 Rango de Edad</label>
+          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">⏳ Rango de Edad</label>
           <select id="market-age-select" style="width:100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
             <option value="ALL" ${ageFilter === "ALL" ? "selected" : ""}>Todas las edades</option>
             <option value="U21" ${ageFilter === "U21" ? "selected" : ""}>Sub-21 (Promesas ≤ 21a)</option>
@@ -1053,7 +1107,6 @@ function renderTransfersTab(state) {
             <option value="VET" ${ageFilter === "VET" ? "selected" : ""}>Veteranos (29+ años)</option>
           </select>
         </div>
-
         <div>
           <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">⭐ Media Mínima (OVR)</label>
           <select id="market-ovr-select" style="width:100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
@@ -1114,11 +1167,12 @@ function renderTransfersTab(state) {
               const canLoan = !isFree && (state.budget || 0) >= loanVal && !p.isLoaned;
               const c = state.clubs[p.clubId];
               const friendOwner = humanManagers.find(m => m.clubId === p.clubId);
+
               return `
                 <tr>
                   <td>
                     <span class="btn-inspect-player" data-pid="${p.id}" style="cursor:pointer; font-weight:800; text-decoration:underline; text-decoration-color:rgba(255,255,255,0.28); text-underline-offset:3px;">${p.name}</span>
-                    ${p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">★ LEYENDA</span>` : p.isRegen ? `<span style="background:rgba(16,185,129,0.22); color:#34d399; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">REGEN</span>` : ""}
+                    ${p.isWorldIcon ? `<span style="background:rgba(234,179,8,0.22); color:#facc15; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">👑 ÍCONO</span>` : p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">★ LEYENDA</span>` : p.isRegen ? `<span style="background:rgba(16,185,129,0.22); color:#34d399; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">REGEN</span>` : ""}
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px; display:flex; gap:8px;">
                       <span>RIT <b style="color:#e2e8f0;">${attrs.RIT}</b></span>
                       <span>TIR <b style="color:#e2e8f0;">${attrs.TIR}</b></span>
@@ -1128,7 +1182,7 @@ function renderTransfersTab(state) {
                   </td>
                   <td style="color: var(--text-muted);">
                     ${isFree
-                      ? `<span style="background:rgba(16,185,129,0.2); color:#34d399; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:800;">🆓 Agente Libre</span>`
+                      ? `<span style="background:rgba(16,185,129,0.2); color:#34d399; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:800;">${p.isWorldIcon ? "👑 Leyenda Libre" : "🆓 Agente Libre"}</span>`
                       : `${renderClubBadge(c, 20)} <b>${c?.name || "-"}</b> ${friendOwner ? `<span style="background:rgba(249,115,22,0.22); color:#fdba74; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">👤 ${friendOwner.name}</span>` : `<small>(${c?.flag || ""})</small>`}`}
                   </td>
                   <td><span class="fm-badge-pos">${p.pos}</span></td>
@@ -1138,7 +1192,7 @@ function renderTransfersTab(state) {
                   <td>
                     ${isFree ? `
                       <button class="btn-sign-free-agent fm-btn ${canBuy ? 'fm-btn-primary' : ''}" data-pid="${p.id}" ${!canBuy ? 'disabled' : ''} style="padding: 5px 11px; font-size: 11px; ${!canBuy ? 'background:#334155; opacity:0.45; cursor:not-allowed;' : ''}">
-                        🆓 Fichar Libre
+                        ${p.isWorldIcon ? "👑 Fichar Leyenda" : "🆓 Fichar Libre"}
                       </button>
                     ` : `
                       <div style="display:flex; flex-wrap:wrap; gap:5px;">
@@ -1201,6 +1255,7 @@ function renderCompetitionsTab(state) {
   const otherLeagues = Object.values(state.competitions?.otherLeagues || {});
   const hallOfFame = state.hallOfFame || [];
   const mpManagers = state.mpManagers || [];
+
   return `
     ${mpManagers.length > 1 ? `
       <div class="fm-card">
@@ -1247,7 +1302,7 @@ function renderCompetitionsTab(state) {
     ${renderCupCard(state, "cont_1", "🌍")}
     ${renderCupCard(state, "cup_1", "🏆")}
 
-    <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px;">
+    <div style="display: flex; flex-wrap:wrap; gap:8px; margin-bottom:14px;">
       <button class="btn-select-standings fm-btn ${selectedStandingsView === 'league_1' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-lid="league_1" style="font-size:12px;">
         ⭐ ${state.competitions?.league_1?.name || "Mi Liga"}
       </button>
@@ -1265,7 +1320,7 @@ function renderCompetitionsTab(state) {
 
     ${hallOfFame.length > 0 ? `
       <div class="fm-card">
-        <h3>🏛️ Salón de la Fama — Historial de Temporadas</h3>
+        <h3>🏛️ Salón de la Fama - Historial de Temporadas</h3>
         <div style="overflow-x:auto;">
           <table class="fm-table">
             <thead>
@@ -1303,7 +1358,7 @@ function renderTopScorersCard(state) {
 
   return `
     <div class="fm-card">
-      <h3>⚽ Bota de Oro / Goleadores Globales</h3>
+      <h3>👟 Bota de Oro / Goleadores Globales</h3>
       ${topScorers.length === 0 ? `<p style="color: var(--text-muted); font-size: 14px;">Aún no se han marcado goles en esta temporada.</p>` : `
         <table class="fm-table">
           <thead>
@@ -1322,7 +1377,7 @@ function renderTopScorersCard(state) {
                   <td><b>${i + 1}</b></td>
                   <td><span class="btn-inspect-player" data-pid="${p.id}" style="cursor:pointer; font-weight:800; text-decoration:underline; text-decoration-color:rgba(255,255,255,0.28); text-underline-offset:3px;">${p.name}</span></td>
                   <td style="color: var(--text-muted);">${c?.flag || ""} ${c?.name || "-"}</td>
-                  <td><b style="color: var(--success); font-size:14px;">${p.goals}</b></td>
+                  <td><b style="color: var(--success); font-size: 14px;">${p.goals}</b></td>
                 </tr>
               `;
             }).join("")}
@@ -1336,13 +1391,12 @@ function renderTopScorersCard(state) {
 function renderCupCard(state, compKey, icon) {
   const cup = state.competitions?.[compKey];
   if (!cup) return "";
-
   return `
     <div class="fm-card">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
         <h3 style="margin: 0;">${icon} ${cup.name}</h3>
         <span style="font-size: 13px; color: #f59e0b; font-weight: 800;">
-          ${cup.championId ? `Campeón: ${state.clubs[cup.championId]?.name}` : cup.stageNames[cup.currentStage]}
+          ${cup.championId ? `🏆 Campeón: ${state.clubs[cup.championId]?.name}` : cup.stageNames[cup.currentStage]}
         </span>
       </div>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
@@ -1369,7 +1423,6 @@ function renderLeagueTableCard(state, leagueKey = "league_1") {
     : state.competitions?.otherLeagues?.[leagueKey] || state.competitions?.league_1;
 
   if (!comp || !comp.standings) return "";
-
   const humanMap = {};
   (state.mpManagers || []).forEach(m => { humanMap[m.clubId] = m.name; });
 
@@ -1379,7 +1432,7 @@ function renderLeagueTableCard(state, leagueKey = "league_1") {
 
   return `
     <div class="fm-card">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <div style="display: flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
         <h3 style="margin:0;">Clasificación - ${comp.name}</h3>
         <span style="font-size:11px; color:#60a5fa; font-weight:700;">Top 2 → Copa Continental</span>
       </div>
@@ -1431,6 +1484,7 @@ function renderLiveMatchView(state) {
   );
   const homeClub = state.clubs[m.homeId];
   const awayClub = state.clubs[m.awayId];
+
   const attInfo = calculateMatchAttendance(
     homeClub,
     isUserHome ? (state.boardConfidence || 80) : 82,
@@ -1477,7 +1531,7 @@ function renderLiveMatchView(state) {
             <span>Tu Táctica: <b style="color:#60a5fa;">${activeTactic}</b> | Rival: <b id="live-rival-tactic" style="color:#f59e0b;">${isUserHome ? m.awayTactic : m.homeTactic}</b></span>
             <span id="live-away-stats">Faltas <b style="color:#fff;">${m.stats?.awayFouls || 0}</b> • Tiros <b style="color:#fff;">${m.stats?.awayShots || 0}</b> • Pos <b style="color:#fff;">${awayPossPct}%</b></span>
           </div>
-          <div style="width:100%; height:6px; background:${awayClub.colors[0]}; border-radius:99px; overflow:hidden; display:flex;">
+          <div style="width: 100%; height:6px; background:${awayClub.colors[0]}; border-radius:99px; overflow:hidden; display:flex;">
             <div id="live-poss-bar-home" style="width:${homePossPct}%; height:100%; background:${homeClub.colors[0]}; transition: width 0.25s ease;"></div>
           </div>
         </div>
@@ -1488,14 +1542,14 @@ function renderLiveMatchView(state) {
               <span style="font-size: 11px; font-weight:700; color: var(--text-muted); text-transform:uppercase; margin-right: 4px;">Táctica:</span>
               <button type="button" class="btn-live-mentality fm-btn ${activeTactic === 'Defensivo' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-tactic="Defensivo" style="padding: 5px 10px; font-size: 12px;">🛡️ Defensivo</button>
               <button type="button" class="btn-live-mentality fm-btn ${activeTactic === 'Equilibrado' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-tactic="Equilibrado" style="padding: 5px 10px; font-size: 12px;">⚖️ Equilibrado</button>
-              <button type="button" class="btn-live-mentality fm-btn ${activeTactic === 'Ofensivo' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-tactic="Ofensivo" style="padding: 5px 10px; font-size: 12px;">🔥 Ofensivo</button>
+              <button type="button" class="btn-live-mentality fm-btn ${activeTactic === 'Ofensivo' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-tactic="Ofensivo" style="padding: 5px 10px; font-size: 12px;">⚔️ Ofensivo</button>
             </div>
             <div style="display: flex; gap: 6px;">
               <button type="button" id="btn-toggle-audio" class="fm-btn fm-btn-ghost" style="padding: 5px 10px; font-size: 12px;">
-                ${isAudioMuted() ? '🔇' : '🔊'}
+                ${isAudioMuted() ? "🔇" : "🔊"}
               </button>
               <button type="button" id="btn-pause-match" class="fm-btn fm-btn-ghost" style="padding: 5px 12px; font-size: 12px;">
-                ${m.paused ? '▶ Reanudar' : '⏸ Pausar / Cambios'}
+                ${m.paused ? "▶️ Reanudar" : "⏸️ Pausar / Cambios"}
               </button>
             </div>
           </div>
@@ -1507,7 +1561,7 @@ function renderLiveMatchView(state) {
               </div>
               <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
                 <select id="sub-out-select" style="background: #1e293b; color: #fff; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--panel-border);">
-                  ${userAgents.map((a, idx) => `<option value="${idx}" ${a.expelled ? 'disabled' : ''}>${a.expelled ? '🟥 EXPULSADO: ' : 'Sale: '}${a.name} (${a.posType} • Físico ${Math.round(a.stamina ?? 100)}%)</option>`).join("")}
+                  ${userAgents.map((a, idx) => `<option value="${idx}" ${a.expelled ? 'disabled' : ''}>${a.expelled ? '🟥 EXPULSADO: ' : 'Sale: '}${a.name} (${a.posType} • ${Math.round(a.stamina ?? 100)}% Físico)</option>`).join("")}
                 </select>
                 <select id="sub-in-select" style="background: #1e293b; color: #fff; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--panel-border);">
                   ${benchPlayers.map(p => `<option value="${p.id}">Entra: ${p.name} (${p.pos} • OVR ${p.ovr})</option>`).join("")}
@@ -1538,28 +1592,26 @@ function renderLiveMatchView(state) {
 
 function renderClubSelection(state) {
   const allClubsSorted = Object.values(state.clubs || {}).sort((a, b) => (a.leagueName || "").localeCompare(b.leagueName || "") || b.ovr - a.ovr);
-
   if (allClubsSorted.length >= 6) {
     const used = new Set();
     mpDraftSlots.forEach((slot, idx) => {
       if (!slot.clubId || !state.clubs[slot.clubId] || used.has(slot.clubId)) {
         const fallback = allClubsSorted.find(c => !used.has(c.id)) || allClubsSorted[idx];
         slot.clubId = fallback.id;
+        used.add(slot.clubId);
       }
-      used.add(slot.clubId);
     });
   }
 
   const clubs = Object.values(state.clubs || {}).filter(c => (c.leagueId || "esp_1") === selectedPreviewLeague);
-
   return `
     <div class="fm-container" style="max-width: 980px; margin-top: 16px;">
       <div class="fm-hero-header">
         <div style="display:inline-block; background:rgba(59,130,246,0.2); border:1px solid rgba(59,130,246,0.45); color:#60a5fa; font-size:11px; font-weight:800; padding:4px 12px; border-radius:99px; letter-spacing:0.08em; margin-bottom:10px;">
-          TEMPORADA 2026 • 4 LIGAS EUROPEAS • 48 CLUBES
+          TEMPORADA 2026 • 10 LIGAS MUNDIALES (EUROPA Y SUDAMÉRICA) • 120 CLUBES
         </div>
         <h1 style="font-size: 32px; font-weight: 900; letter-spacing: -0.02em; margin-bottom: 8px;">
-          ⚽ WORLD FOOTBALL MANAGER <span style="color: #3b82f6;">2026</span>
+          WORLD FOOTBALL MANAGER <span style="color: #3b82f6;">2026</span>
         </h1>
         <p style="color: var(--text-muted); max-width: 620px; margin: 0 auto 18px; font-size: 14px;">
           Dirige en solitario, arma una sala compartida con tus amigos o conéctate por código desde cualquier computadora o celular.
@@ -1567,10 +1619,10 @@ function renderClubSelection(state) {
 
         <div style="display:flex; justify-content:center; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
           <button class="btn-setup-mode fm-btn ${setupMode === 'solo' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-mode="solo" style="padding: 9px 16px; font-size: 13px;">
-            ⚽ Carrera Individual
+            👤 Carrera Individual
           </button>
           <button class="btn-setup-mode fm-btn ${setupMode === 'mp' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-mode="mp" style="padding: 9px 16px; font-size: 13px; border-color:rgba(59,130,246,0.5);">
-            👥 Crear Sala Amigos (2–6)
+            👥 Crear Sala Amigos (2-6)
           </button>
           <button class="btn-setup-mode fm-btn ${setupMode === 'join_online' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-mode="join_online" style="padding: 9px 16px; font-size: 13px; border-color:rgba(16,185,129,0.5); color:${setupMode === 'join_online' ? '#fff' : '#34d399'};">
             🌐 Unirse a Sala Online
@@ -1578,7 +1630,7 @@ function renderClubSelection(state) {
         </div>
 
         ${setupMode === "solo" ? `
-          <div style="display:flex; justify-content:center; flex-wrap:wrap; gap:8px;">
+          <div style="display: flex; justify-content:center; flex-wrap:wrap; gap:8px;">
             ${LEAGUES_CATALOG.map(l => `
               <button class="btn-preview-league fm-btn ${selectedPreviewLeague === l.id ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-lid="${l.id}" style="padding: 8px 16px; font-size: 13px;">
                 ${l.flag} ${l.name}
@@ -1589,7 +1641,7 @@ function renderClubSelection(state) {
       </div>
 
       ${setupMode === "join_online" ? `
-        <div class="fm-card" style="max-width:560px; margin:0 auto;">
+        <div class="fm-card" style="max-width: 560px; margin:0 auto;">
           <h3 style="margin-bottom:6px;">🌐 Unirse a una Sala Online por Código</h3>
           <p style="font-size:13px; color:var(--text-muted); margin-bottom:14px;">
             Pide al anfitrión el código de 6 letras de la sala (ej. <b style="color:#fff;">WFM82K</b>) y elige tu perfil de mánager.
@@ -1597,7 +1649,7 @@ function renderClubSelection(state) {
           <div style="display:flex; gap:8px; margin-bottom:16px;">
             <input id="input-join-room-code" type="text" maxlength="8" value="${joinRoomCodeInput.replace(/"/g, "&quot;")}" placeholder="CÓDIGO (EJ. WFM82K)" style="flex:1; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:10px; padding:10px 14px; font-size:15px; font-weight:900; letter-spacing:0.12em; text-transform:uppercase;">
             <button id="btn-search-online-room" class="fm-btn fm-btn-primary" style="padding:10px 18px; font-size:13px;">
-              🔍 Buscar Sala
+              Buscar Sala
             </button>
           </div>
 
@@ -1611,7 +1663,7 @@ function renderClubSelection(state) {
                   const c = fetchedOnlineRoom.state_json?.clubs?.[m.clubId];
                   return `
                     <button class="btn-join-as-manager fm-btn fm-btn-ghost" data-mgrid="${m.id}" style="display:flex; justify-content:space-between; align-items:center; width:100%; padding:10px 12px; text-align:left; border-color:rgba(59,130,246,0.4);">
-                      <span>👤 <b>${m.name}</b> — ${c?.name || m.clubId}</span>
+                      <span>👤 <b>${m.name}</b> • ${c?.name || m.clubId}</span>
                       <span style="color:#60a5fa; font-weight:800; font-size:12px;">Entrar →</span>
                     </button>
                   `;
@@ -1621,7 +1673,7 @@ function renderClubSelection(state) {
           ` : ""}
         </div>
       ` : setupMode === "mp" ? `
-        <div class="fm-card" style="max-width:740px; margin:0 auto;">
+        <div class="fm-card" style="max-width: 740px; margin:0 auto;">
           <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:14px;">
             <div>
               <h3 style="margin:0;">👥 Configurar Sala de Amigos (${mpDraftSlots.length}/6 Mánagers)</h3>
@@ -1661,8 +1713,9 @@ function renderClubSelection(state) {
           ${clubs.map(c => {
             const stadium = getClubStadium(c, 1);
             const tier = c.ovr >= 83 ? { label: "Favorito al Título", color: "#fde047" }
-                       : c.ovr >= 79 ? { label: "Aspirante Europeo", color: "#38bdf8" }
-                       : { label: "Proyecto / Reto", color: "#34d399" };
+              : c.ovr >= 79 ? { label: "Aspirante Continental", color: "#38bdf8" }
+              : { label: "Proyecto / Reto", color: "#34d399" };
+
             return `
               <button class="fm-club-card-pick btn-select-club" data-id="${c.id}" style="background: linear-gradient(150deg, ${c.colors[0]}26, rgba(15, 23, 42, 0.94) 65%); border-top: 2px solid ${c.colors[0]};">
                 <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
@@ -1703,7 +1756,7 @@ function handleSeasonEndHooks(seasonNum) {
   ensureCareerHooksState();
   syncCurrentManagerSnapshot();
   syncOnlineIfActive();
-  showToast(`🏆 ¡Temporada ${seasonNum} Finalizada! Revisa Bandeja IA (Gala y Regens) y Salón de la Fama.`, "success", 5800);
+  showToast(`🎉 ¡Temporada ${seasonNum} Finalizada! Revisa Bandeja IA (Gala y Regens) y Salón de la Fama.`, "success", 5800);
 }
 
 function runQuickSimulationFlow() {
@@ -1721,8 +1774,8 @@ function runQuickSimulationFlow() {
   evaluateObjectivesProgress({ wonMatch: won });
   syncCurrentManagerSnapshot();
   syncOnlineIfActive();
-  showToast(res.msg, res.outcome || "info", 4500);
 
+  showToast(res.msg, res.outcome || "info", 4500);
   if (res.seasonFinished) {
     const seasonNum = store.get().season || 1;
     setTimeout(() => handleSeasonEndHooks(seasonNum), 350);
@@ -1737,7 +1790,7 @@ function bindEvents(state) {
   });
 
   document.getElementById("btn-publish-online-room")?.addEventListener("click", async () => {
-    showToast("☁️ Creando sala online en la nube...", "info", 2000);
+    showToast("🌐 Creando sala online en la nube...", "info", 2000);
     const res = await createOnlineRoom();
     showToast(res.msg, res.ok ? "success" : "warning", 6000);
   });
@@ -1752,12 +1805,12 @@ function bindEvents(state) {
 
   document.getElementById("btn-manual-sync-online")?.addEventListener("click", async () => {
     const updated = await pullOnlineWorldState();
-    showToast(updated ? "🌐 Sala sincronizada con los últimos movimientos." : "✓ Tu sala ya está al día.", "info");
+    showToast(updated ? "🔄 Sala sincronizada con los últimos movimientos." : "✓ Tu sala ya está al día.", "info");
   });
 
   document.getElementById("btn-home-check-sync")?.addEventListener("click", async () => {
     const updated = await pullOnlineWorldState();
-    showToast(updated ? "🌐 ¡Estado actualizado!" : "⏳ Tus amigos aún no terminan su partido.", "info");
+    showToast(updated ? "🔄 ¡Estado actualizado!" : "⏳ Tus amigos aún no terminan su partido.", "info");
   });
 
   document.querySelectorAll(".nav-tab").forEach(btn => {
@@ -1788,7 +1841,7 @@ function bindEvents(state) {
       const userSquad = Object.values(state.players || {}).filter(p => p.clubId === state.userClubId);
       const validStarters = userSquad.filter(p => p.starter && !isPlayerUnavailable(p)).length;
       if (validStarters !== 11) {
-        showToast(`Necesitas 11 titulares disponibles (tienes ${validStarters}). Usa "⚡ Mejor XI" o ajusta tu plantilla.`, "warning");
+        showToast(`Necesitas 11 titulares disponibles (tienes ${validStarters}). Usa "Mejor XI" o ajusta tu plantilla.`, "warning");
         store.update(["activeTab"], draft => { draft.activeTab = "squad"; });
         return;
       }
@@ -2120,7 +2173,7 @@ document.addEventListener("click", async e => {
       showToast(res.msg, "warning");
     } else {
       fetchedOnlineRoom = res.room;
-      showToast(`✓ Sala ${res.room.room_code} cargada.`, "success");
+      showToast(`✅ Sala ${res.room.room_code} cargada.`, "success");
     }
     render();
     return;
@@ -2360,14 +2413,12 @@ document.addEventListener("click", async e => {
 
       advanceMedicalRecovery();
       applyPostMatchMedicalAndCards(m);
-
       completeRoundWithUserResult(m.homeId, m.awayId, m.gh, m.ga, compId);
       recordMatchInCareer(m.gh, m.ga);
       processRoundProgression(wasUserHome);
       registerPostMatchPressAndRecords(m.homeName, m.awayName, m.gh, m.ga, wasUserHome);
       triggerPostMatchEvent();
       maybeGenerateIncomingOffer();
-
       grantManagerXp(won ? 240 : userGoals === rivalGoals ? 110 : 50, "Partido en vivo");
       evaluateObjectivesProgress({ wonMatch: won });
       syncCurrentManagerSnapshot();

@@ -1,22 +1,23 @@
 import { store } from "../core/state.js";
 
 const FREE_AGENT_POOL_TEMPLATES = [
-  { name: "Sergio Ramos", age: 39, pos: "DEF", ovr: 81, flag: "🇪🇸" },
-  { name: "Keylor Navas", age: 38, pos: "POR", ovr: 80, flag: "🇨🇷" },
-  { name: "Memphis Depay", age: 31, pos: "DEL", ovr: 82, flag: "🇳🇱" },
-  { name: "Adrien Rabiot", age: 30, pos: "MED", ovr: 83, flag: "🇫🇷" },
-  { name: "Mats Hummels", age: 36, pos: "DEF", ovr: 82, flag: "🇩🇪" },
-  { name: "Alexis Sánchez", age: 36, pos: "DEL", ovr: 79, flag: "🇨🇱" },
-  { name: "Dele Alli", age: 29, pos: "MED", ovr: 76, flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿" },
-  { name: "Mario Hermoso", age: 30, pos: "DEF", ovr: 80, flag: "🇪🇸" },
-  { name: "Anthony Martial", age: 29, pos: "DEL", ovr: 78, flag: "🇫🇷" },
-  { name: "Wissam Ben Yedder", age: 34, pos: "DEL", ovr: 80, flag: "🇫🇷" },
-  { name: "Iker Muniain", age: 32, pos: "MED", ovr: 78, flag: "🇪🇸" },
-  { name: "Mariano Díaz", age: 31, pos: "DEL", ovr: 75, flag: "🇩🇴" },
-  { name: "Cédric Soares", age: 33, pos: "DEF", ovr: 75, flag: "🇵🇹" },
-  { name: "Loris Karius", age: 31, pos: "POR", ovr: 75, flag: "🇩🇪" },
-  { name: "Rafinha Alcântara", age: 32, pos: "MED", ovr: 77, flag: "🇧🇷" },
-  { name: "Brandon Williams", age: 24, pos: "DEF", ovr: 74, flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿" }
+  { name: "James Rodríguez", age: 34, pos: "MED", ovr: 82, flag: "🇨🇴", nationality: "Colombia", natCode: "COL" },
+  { name: "Sergio Ramos", age: 39, pos: "DEF", ovr: 81, flag: "🇪🇸", nationality: "España", natCode: "ESP" },
+  { name: "Keylor Navas", age: 38, pos: "POR", ovr: 80, flag: "🇨🇷", nationality: "Costa Rica", natCode: "CRC" },
+  { name: "Memphis Depay", age: 31, pos: "DEL", ovr: 82, flag: "🇳🇱", nationality: "Países Bajos", natCode: "NED" },
+  { name: "Adrien Rabiot", age: 30, pos: "MED", ovr: 83, flag: "🇫🇷", nationality: "Francia", natCode: "FRA" },
+  { name: "Mats Hummels", age: 36, pos: "DEF", ovr: 82, flag: "🇩🇪", nationality: "Alemania", natCode: "GER" },
+  { name: "Alexis Sánchez", age: 36, pos: "DEL", ovr: 79, flag: "🇨🇱", nationality: "Chile", natCode: "CHI" },
+  { name: "Dele Alli", age: 29, pos: "MED", ovr: 76, flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", nationality: "Inglaterra", natCode: "ENG" },
+  { name: "Mario Hermoso", age: 30, pos: "DEF", ovr: 80, flag: "🇪🇸", nationality: "España", natCode: "ESP" },
+  { name: "Anthony Martial", age: 29, pos: "DEL", ovr: 78, flag: "🇫🇷", nationality: "Francia", natCode: "FRA" },
+  { name: "Wissam Ben Yedder", age: 34, pos: "DEL", ovr: 80, flag: "🇫🇷", nationality: "Francia", natCode: "FRA" },
+  { name: "Iker Muniain", age: 32, pos: "MED", ovr: 78, flag: "🇪🇸", nationality: "España", natCode: "ESP" },
+  { name: "Mariano Díaz", age: 31, pos: "DEL", ovr: 75, flag: "🇩🇴", nationality: "Rep. Dominicana", natCode: "DOM" },
+  { name: "Cédric Soares", age: 33, pos: "DEF", ovr: 75, flag: "🇵🇹", nationality: "Portugal", natCode: "POR" },
+  { name: "Loris Karius", age: 31, pos: "POR", ovr: 75, flag: "🇩🇪", nationality: "Alemania", natCode: "GER" },
+  { name: "Rafinha Alcântara", age: 32, pos: "MED", ovr: 77, flag: "🇧🇷", nationality: "Brasil", natCode: "BRA" },
+  { name: "Brandon Williams", age: 24, pos: "DEF", ovr: 74, flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", nationality: "Inglaterra", natCode: "ENG" }
 ];
 
 export const DEVELOPMENT_FOCUSES = {
@@ -28,7 +29,7 @@ export const DEVELOPMENT_FOCUSES = {
 
 export function ensureFreeAgentsPool() {
   const state = store.get();
-  const existingFree = Object.values(state.players || {}).filter(p => p.clubId === "free_agent");
+  const existingFree = Object.values(state.players || {}).filter(p => p.clubId === "free_agent" && !p.isWorldIcon);
   if (existingFree.length >= 6) return;
 
   store.update(["players"], draft => {
@@ -41,6 +42,9 @@ export function ensureFreeAgentsPool() {
           age: tpl.age,
           pos: tpl.pos,
           ovr: tpl.ovr,
+          flag: tpl.flag,
+          nationality: tpl.nationality,
+          natCode: tpl.natCode,
           clubId: "free_agent",
           isFreeAgent: true,
           starter: false,
@@ -55,6 +59,11 @@ export function ensureFreeAgentsPool() {
 }
 
 export function getFreeAgentSignBonus(player) {
+  if (player.isWorldIcon) {
+    // Prima especial de leyenda histórica (entre 14M€ y 35M€ según OVR)
+    const iconBase = Math.max(12000000, ((player.ovr || 90) - 85) * 3500000);
+    return Math.round(iconBase / 100000) * 100000;
+  }
   const base = Math.max(350000, ((player.ovr || 74) - 70) * 180000);
   return Math.round(base / 10000) * 10000;
 }
@@ -75,7 +84,7 @@ export function signFreeAgent(playerId) {
 
   const bonusFee = getFreeAgentSignBonus(player);
   if ((state.budget || 0) < bonusFee) {
-    return { ok: false, msg: `Necesitas ${(bonusFee / 1e6).toFixed(2)} M€ para cubrir la prima de fichaje libre.` };
+    return { ok: false, msg: `Necesitas ${(bonusFee / 1e6).toFixed(2)} M€ para cubrir la prima de fichaje.` };
   }
 
   store.update(["budget", "players", "inbox"], draft => {
@@ -83,15 +92,17 @@ export function signFreeAgent(playerId) {
     draft.players[playerId].clubId = uid;
     draft.players[playerId].isFreeAgent = false;
     draft.players[playerId].starter = false;
-    draft.players[playerId].contractYears = 2;
-    draft.players[playerId].morale = 90;
+    draft.players[playerId].contractYears = player.isWorldIcon ? 3 : 2;
+    draft.players[playerId].morale = 94;
 
     draft.inbox = [
       {
         id: `fa_sign_${Date.now()}`,
-        title: `✍️ Agente Libre fichado: ${player.name}`,
+        title: player.isWorldIcon
+          ? `👑 ¡Fichaje Histórico! ${player.flag || ""} ${player.name}`
+          : `✍️ Agente Libre fichado: ${player.flag || ""} ${player.name}`,
         date: `Temporada ${state.season || 1}`,
-        body: `Has incorporado a <b>${player.name}</b> (${player.pos}, OVR ${player.ovr}) a coste cero de traspaso, abonando una prima de firma de ${(bonusFee / 1e6).toFixed(2)} M€.`,
+        body: `Has incorporado a <b>${player.flag || ""} ${player.name}</b> (${player.pos}, OVR ${player.ovr}) abonando una prima de firma de ${(bonusFee / 1e6).toFixed(2)} M€.`,
         choices: [],
         resolved: true
       },
@@ -101,7 +112,7 @@ export function signFreeAgent(playerId) {
 
   return {
     ok: true,
-    msg: `¡${player.name} fichado como Agente Libre por ${(bonusFee / 1e6).toFixed(2)} M€ de prima!`
+    msg: `¡${player.flag || ""} ${player.name} fichado por ${(bonusFee / 1e6).toFixed(2)} M€ de prima!`
   };
 }
 
