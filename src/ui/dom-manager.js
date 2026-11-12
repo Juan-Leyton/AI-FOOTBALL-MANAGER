@@ -32,6 +32,7 @@ import { isPlayerUnavailable, getPlayerStatusBadge, applyPostMatchMedicalAndCard
 import { LEAGUES_CATALOG, buildWorldDatabase } from "../data/world-database.js";
 import { renderEnhancedPitch } from "./pitch-renderer.js";
 import { renderPlayerProfileModal } from "./player-modal.js";
+import { renderTacticsExtrasUI } from "./tactics-extras.js";
 import { showToast } from "./toast.js";
 import { renderClubBadge } from "./badges.js";
 
@@ -172,6 +173,7 @@ function render() {
       updateLiveMatchDynamicParts(state);
     }
 
+    renderTacticsExtrasUI();
     const canvas = document.getElementById("pitch-canvas");
     renderEnhancedPitch(canvas, state.liveMatch, state.clubs);
     return;
@@ -351,6 +353,7 @@ function render() {
     ${inspectedPlayerId ? renderPlayerProfileModal(state, inspectedPlayerId) : ""}
   `;
 
+  renderTacticsExtrasUI();
   bindEvents(state);
 
   if (wasSearching) {

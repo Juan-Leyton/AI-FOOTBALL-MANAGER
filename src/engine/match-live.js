@@ -1,5 +1,6 @@
 import { store } from "../core/state.js";
 import { playWhistle, playKick, playGoalCheer } from "./audio.js";
+import { getDefaultRoleForPos, getRoleConfig, getEffectiveSetPieces } from "./tactics-roles.js";
 
 let matchInterval = null;
 const MAX_GOALS_PER_TEAM = 5;
@@ -39,13 +40,17 @@ export function assignPlayersToSlots(starters, formationKey) {
   });
 }
 
-function createAgentFromSlot({ slot, player, outOfPosition }, i, isHome) {
-  const startX = isHome ? slot.x : 1 - slot.x;
+function createAgentFromSlot({ slot, player, outOfPosition }, i, isHome, roleId) {
+  const roleCfg = getRoleConfig(slot.pos, roleId || getDefaultRoleForPos(slot.pos));
+  const shiftedSlotX = Math.max(0.03, Math.min(0.68, slot.x + (roleCfg.xShift || 0)));
+  const startX = isHome ? shiftedSlotX : 1 - shiftedSlotX;
+
   const rawOvr = player?.ovr || 78;
   const morale = player?.morale ?? 85;
   const moraleBonus = morale >= 85 ? 2 : morale < 55 ? -3 : 0;
   const posPenalty = outOfPosition ? -12 : 0;
-  const effectiveOvr = Math.max(55, rawOvr + moraleBonus + posPenalty);
+  const roleBonus = Math.round(((roleCfg.atkBonus || 0) + (roleCfg.defBonus || 0)) * 0.4);
+  const effectiveOvr = Math.max(55, rawOvr + moraleBonus + posPenalty + roleBonus);
 
   const stamina = player?.stamina ?? 100;
   const skillFactor = 0.90 + ((effectiveOvr - 75) * 0.010);
@@ -56,6 +61,10 @@ function createAgentFromSlot({ slot, player, outOfPosition }, i, isHome) {
     playerId: player?.id || null,
     name: player?.name || `Jugador ${i + 1}`,
     ovr: effectiveOvr,
+    roleId: roleCfg.id,
+    roleName: roleCfg.name,
+    atkBonus: roleCfg.atkBonus || 0,
+    defBonus: roleCfg.defBonus || 0,
     outOfPosition,
     stamina,
     yellowCards: 0,
@@ -75,10 +84,11 @@ function createAgentFromSlot({ slot, player, outOfPosition }, i, isHome) {
 
 function initAgents(club, playersMap, isHome) {
   const formKey = club?.formation || "4-3-3";
+  const slotRoles = club?.slotRoles || {};
   const clubPlayers = Object.values(playersMap || {}).filter(p => p.clubId === club.id);
   const starters = clubPlayers.filter(p => p.starter).slice(0, 11);
   const assigned = assignPlayersToSlots(starters, formKey);
-  return assigned.map((entry, i) => createAgentFromSlot(entry, i, isHome));
+  return assigned.map((entry, i) => createAgentFromSlot(entry, i, isHome, slotRoles[i]));
 }
 
 function getInitialTacticLabel(club) {
@@ -101,6 +111,8 @@ export function startLiveMatch(homeId, awayId, onFinish, isKnockout = false) {
 
   const homeAgents = initAgents(homeClub, state.players, true);
   const awayAgents = initAgents(awayClub, state.players, false);
+  const homeSetPieces = getEffectiveSetPieces(state, homeId);
+  const awaySetPieces = getEffectiveSetPieces(state, awayId);
   const kickoffPlayer = homeAgents[9] || homeAgents[6];
   ballTrail.length = 0;
 
@@ -114,10 +126,14 @@ export function startLiveMatch(homeId, awayId, onFinish, isKnockout = false) {
     awayColors: awayClub.colors,
     homeSliders: { ...(homeClub.tactics || { mentality: 55, tempo: 55, press: 55 }) },
     awaySliders: { ...(awayClub.tactics || { mentality: 55, tempo: 55, press: 55 }) },
+    homeSetPieces,
+    awaySetPieces,
     homeAgents,
     awayAgents,
     homeTactic: getInitialTacticLabel(homeClub),
     awayTactic: getInitialTacticLabel(awayClub),
+    activeShout: null,
+    lastShoutMinute: -15,
     subsUsed: 0,
     maxSubs: 5,
     goalScorers: [],
@@ -174,7 +190,7 @@ export function startLiveMatch(homeId, awayId, onFinish, isKnockout = false) {
     const ball = { ...m.ball };
     const homeAgents = m.homeAgents.map(a => ({ ...a }));
     const awayAgents = m.awayAgents.map(a => ({ ...a }));
-    let { tick, gh, ga, homeTactic, awayTactic } = m;
+    let { tick, gh, ga, homeTactic, awayTactic, activeShout } = m;
     const addedEvents = [];
     const newScorers = [...(m.goalScorers || [])];
     const newStats = { ...(m.stats || { homePoss: 1, awayPoss: 1, homeShots: 0, awayShots: 0, homeFouls: 0, awayFouls: 0 }) };
@@ -184,6 +200,10 @@ export function startLiveMatch(homeId, awayId, onFinish, isKnockout = false) {
 
     const nextTick = (tick || 0) + 1;
     const currentMin = Math.floor(nextTick / 10);
+
+    if (activeShout && currentMin >= activeShout.expiresAt) {
+      activeShout = null;
+    }
 
     if (ball.stealCooldown > 0) ball.stealCooldown -= 1;
 
@@ -215,7 +235,7 @@ export function startLiveMatch(homeId, awayId, onFinish, isKnockout = false) {
       }
     }
 
-    const getTacticProfile = (tacticLabel, sliders) => {
+    const getTacticProfile = (tacticLabel, sliders, isHomeTeam) => {
       const sMentality = Number(sliders?.mentality ?? 50);
       const sTempo = Number(sliders?.tempo ?? 50);
       const sPress = Number(sliders?.press ?? 50);
@@ -224,47 +244,57 @@ export function startLiveMatch(homeId, awayId, onFinish, isKnockout = false) {
       const tempoFactor = 0.85 + (sTempo / 100) * 0.35;
       const pressFactor = 0.70 + (sPress / 100) * 0.65;
 
+      const shoutMatches = activeShout && activeShout.isHome === isHomeTeam;
+      const shoutAtk = shoutMatches ? (activeShout.atkMod || 1) : 1;
+      const shoutDef = shoutMatches ? (activeShout.defMod || 1) : 1;
+
       if (tacticLabel === "Ofensivo") {
         return {
           blockShift: 0.22 + sliderShift,
-          pressRange: 0.32 * pressFactor,
+          pressRange: 0.32 * pressFactor * shoutDef,
           passSpeed: 0.025 * tempoFactor,
           shootRange: 0.28,
-          shootAggression: 0.42,
+          shootAggression: 0.42 * shoutAtk,
           dribbleRatio: 0.44,
           decisionDelay: Math.max(6, Math.round(12 / tempoFactor)),
           defLineCap: 0.45,
-          foulRisk: 0.16
+          foulRisk: 0.16,
+          shoutAtk,
+          shoutDef
         };
       }
       if (tacticLabel === "Defensivo") {
         return {
           blockShift: -0.20 + sliderShift,
-          pressRange: 0.11 * pressFactor,
+          pressRange: 0.11 * pressFactor * shoutDef,
           passSpeed: 0.019 * tempoFactor,
           shootRange: 0.20,
-          shootAggression: 0.18,
+          shootAggression: 0.18 * shoutAtk,
           dribbleRatio: 0.20,
           decisionDelay: Math.max(8, Math.round(15 / tempoFactor)),
           defLineCap: 0.22,
-          foulRisk: 0.11
+          foulRisk: 0.11,
+          shoutAtk,
+          shoutDef
         };
       }
       return {
         blockShift: 0.02 + sliderShift,
-        pressRange: 0.20 * pressFactor,
+        pressRange: 0.20 * pressFactor * shoutDef,
         passSpeed: 0.022 * tempoFactor,
         shootRange: 0.24,
-        shootAggression: 0.28,
+        shootAggression: 0.28 * shoutAtk,
         dribbleRatio: 0.33,
         decisionDelay: Math.max(7, Math.round(13 / tempoFactor)),
         defLineCap: 0.34,
-        foulRisk: 0.13
+        foulRisk: 0.13,
+        shoutAtk,
+        shoutDef
       };
     };
 
-    const homeProfile = getTacticProfile(homeTactic, m.homeSliders);
-    const awayProfile = getTacticProfile(awayTactic, m.awaySliders);
+    const homeProfile = getTacticProfile(homeTactic, m.homeSliders, true);
+    const awayProfile = getTacticProfile(awayTactic, m.awaySliders, false);
 
     let carrier = null;
     if (ball.ownerTeam && ball.ownerId !== null) {
@@ -364,17 +394,21 @@ export function startLiveMatch(homeId, awayId, onFinish, isKnockout = false) {
 
     const triggerPenaltyKick = (attackingIsHome) => {
       const attackers = (attackingIsHome ? homeAgents : awayAgents).filter(a => !a.expelled && a.posType !== "POR");
-      const taker = [...attackers].sort((a, b) => b.ovr - a.ovr)[0] || attackers[0];
+      const designatedId = attackingIsHome ? m.homeSetPieces?.penalty : m.awaySetPieces?.penalty;
+      const designated = attackers.find(a => a.playerId === designatedId);
+      const taker = designated || [...attackers].sort((a, b) => b.ovr - a.ovr)[0] || attackers[0];
       if (!taker) return;
 
+      const isSpecialist = Boolean(designated);
       const spotX = attackingIsHome ? 0.88 : 0.12;
       const goalX = attackingIsHome ? 0.985 : 0.015;
       taker.x = spotX;
       taker.y = 0.50;
 
-      const targetY = 0.50 + (Math.random() - 0.5) * 0.17;
+      const spread = isSpecialist ? 0.12 : 0.17;
+      const targetY = 0.50 + (Math.random() - 0.5) * spread;
       const angle = Math.atan2(targetY - 0.50, goalX - spotX);
-      const shotSpeed = 0.042;
+      const shotSpeed = isSpecialist ? 0.045 : 0.042;
 
       playKick();
       ball.ownerTeam = null;
@@ -450,7 +484,8 @@ export function startLiveMatch(homeId, awayId, onFinish, isKnockout = false) {
 
           if (!carrier && Math.hypot(ball.x - a.x, ball.y - a.y) < 0.038) {
             const rivalGoals = isHome ? ga : gh;
-            const baseSave = ball.isPenalty ? 0.24 : (0.72 + ((a.ovr - 75) * 0.011));
+            const roleSaveBonus = (a.defBonus || 0) * 0.012;
+            const baseSave = ball.isPenalty ? 0.24 : (0.71 + ((a.ovr - 75) * 0.011) + roleSaveBonus);
             const saveChance = (!ball.isPenalty && rivalGoals >= MAX_GOALS_PER_TEAM) ? 1.0 : baseSave;
             if (!ball.isShot || Math.random() < Math.min(0.90, saveChance)) {
               if (ball.isShot && Math.random() < (ball.isPenalty ? 0.95 : 0.40)) {
@@ -472,7 +507,7 @@ export function startLiveMatch(homeId, awayId, onFinish, isKnockout = false) {
           const distGoal = Math.abs(goalX - a.x);
           const dirX = isHome ? 1 : -1;
 
-          const defenderHold = (a.posType === "DEF" && profile.blockShift < -0.08 && (isHome ? a.x > 0.36 : a.x < 0.64));
+          const defenderHold = (a.posType === "DEF" && a.roleId !== "def_wingback" && profile.blockShift < -0.08 && (isHome ? a.x > 0.36 : a.x < 0.64));
 
           const centerPull = (0.5 - a.y) * 0.32;
           a.vx = defenderHold ? 0 : dirX * speed * 0.94;
@@ -486,12 +521,13 @@ export function startLiveMatch(homeId, awayId, onFinish, isKnockout = false) {
           const nearestEnemyDist = enemyAgents.reduce((min, e) => e.expelled ? min : Math.min(min, Math.hypot(e.x - a.x, e.y - a.y)), 99);
           const underPressure = nearestEnemyDist < 0.085;
 
+          const roleShootBonus = (a.atkBonus || 0) * 0.025;
           if (distGoal <= profile.shootRange && Math.abs(a.y - 0.5) < 0.27) {
-            if (Math.random() < profile.shootAggression || distGoal < 0.15) {
-              const accuracySpread = Math.max(0.16, 0.30 - ((a.ovr - 70) * 0.005));
+            if (Math.random() < (profile.shootAggression + roleShootBonus) || distGoal < 0.15) {
+              const accuracySpread = Math.max(0.15, 0.30 - ((a.ovr - 70) * 0.005) - ((a.atkBonus || 0) * 0.004));
               const targetY = 0.5 + (Math.random() - 0.5) * accuracySpread;
               const angle = Math.atan2(targetY - a.y, goalX - a.x);
-              const shotSpeed = 0.037 + ((a.ovr - 70) * 0.0005);
+              const shotSpeed = (0.037 + ((a.ovr - 70) * 0.0005)) * Math.min(1.06, profile.shoutAtk);
 
               playKick();
               ball.ownerTeam = null;
@@ -601,8 +637,9 @@ export function startLiveMatch(homeId, awayId, onFinish, isKnockout = false) {
               return;
             }
 
-            const tackleProb = 0.24 + ((a.ovr - carrier.ovr) * 0.012);
-            if (Math.random() < Math.max(0.10, Math.min(0.46, tackleProb))) {
+            const roleDefMod = (a.defBonus || 0) * 0.015;
+            const tackleProb = (0.24 + ((a.ovr - carrier.ovr) * 0.012) + roleDefMod) * profile.shoutDef;
+            if (Math.random() < Math.max(0.10, Math.min(0.48, tackleProb))) {
               ball.ownerTeam = teamKey;
               ball.ownerId = a.id;
               ball.stealCooldown = 13;
@@ -616,7 +653,7 @@ export function startLiveMatch(homeId, awayId, onFinish, isKnockout = false) {
 
         const ballShiftX = (ball.x - 0.5) * 0.12;
         const ballShiftY = (ball.y - 0.5) * 0.14;
-        const supportAdvance = (teamHasBall && (a.posType === "DEL" || a.posType === "MED"))
+        const supportAdvance = (teamHasBall && (a.posType === "DEL" || a.posType === "MED" || a.roleId === "def_wingback"))
           ? (isHome ? 0.055 : -0.055)
           : 0;
         const microMoveX = Math.sin(nextTick * 0.035 + a.noiseOffset) * 0.011;
@@ -624,7 +661,7 @@ export function startLiveMatch(homeId, awayId, onFinish, isKnockout = false) {
 
         let rawTargetX = a.baseX + shiftX + ballShiftX + supportAdvance + microMoveX;
 
-        if (a.posType === "DEF") {
+        if (a.posType === "DEF" && a.roleId !== "def_wingback") {
           if (isHome) rawTargetX = Math.min(profile.defLineCap, rawTargetX);
           else rawTargetX = Math.max(1 - profile.defLineCap, rawTargetX);
         }
@@ -679,6 +716,7 @@ export function startLiveMatch(homeId, awayId, onFinish, isKnockout = false) {
       lm.tick = nextTick;
       lm.gh = gh;
       lm.ga = ga;
+      lm.activeShout = activeShout;
       if (aiChangedHomeTactic) lm.homeTactic = aiChangedHomeTactic;
       if (aiChangedAwayTactic) lm.awayTactic = aiChangedAwayTactic;
       if (newGoalBanner) lm.goalBanner = newGoalBanner;
@@ -709,11 +747,15 @@ function stepPenaltyShootout(m, onFinish) {
   const isHomeTurn = so.turn === "home";
   const shooters = (isHomeTurn ? m.homeAgents : m.awayAgents).filter(a => !a.expelled);
   const gk = (isHomeTurn ? m.awayAgents[0] : m.homeAgents[0]);
-  const shooterIdx = Math.floor(so.kicksTaken / 2) % shooters.length;
-  const shooter = shooters[shooterIdx] || shooters[0];
+  const designatedId = isHomeTurn ? m.homeSetPieces?.penalty : m.awaySetPieces?.penalty;
+  const orderedShooters = [...shooters].sort((a, b) => (b.playerId === designatedId ? 1 : 0) - (a.playerId === designatedId ? 1 : 0));
+
+  const shooterIdx = Math.floor(so.kicksTaken / 2) % orderedShooters.length;
+  const shooter = orderedShooters[shooterIdx] || orderedShooters[0];
 
   playKick();
-  const prob = Math.max(0.55, Math.min(0.88, 0.75 + ((shooter?.ovr || 78) - (gk?.ovr || 78)) * 0.008));
+  const specialistBonus = shooter?.playerId === designatedId ? 0.06 : 0;
+  const prob = Math.max(0.55, Math.min(0.90, 0.75 + ((shooter?.ovr || 78) - (gk?.ovr || 78)) * 0.008 + specialistBonus));
   const scored = Math.random() < prob;
 
   if (scored) {
@@ -836,7 +878,7 @@ export function makeLiveSubstitution(outAgentIndex, inPlayerId) {
     );
   });
 
-  return { ok: true };
+  return { ok: true, msg: `Cambio realizado: ${inPlayer.name}` };
 }
 
 export function setTactic(isHome, tactic) {
@@ -853,257 +895,9 @@ export function setTactic(isHome, tactic) {
 }
 
 export function togglePauseMatch() {
-  store.update(["liveMatch"], draft => { if (draft.liveMatch) draft.liveMatch.paused = !draft.liveMatch.paused; });
-}
-
-export function drawPitch(canvas, liveMatch) {
-  if (!canvas || !liveMatch) return;
-  const bxVal = liveMatch.ball?.x ?? 0.5;
-  const byVal = liveMatch.ball?.y ?? 0.5;
-
-  if (liveMatch.minute === 0 && liveMatch.tick <= 2) ballTrail.length = 0;
-  ballTrail.push({ x: bxVal, y: byVal, isShot: Boolean(liveMatch.ball?.isShot) });
-  if (ballTrail.length > 7) ballTrail.shift();
-
-  const ctx = canvas.getContext("2d");
-  const w = canvas.width;
-  const h = canvas.height;
-  const padX = 32;
-  const padY = 22;
-  const fieldW = w - padX * 2;
-  const fieldH = h - padY * 2;
-
-  ctx.fillStyle = "#08120c";
-  ctx.fillRect(0, 0, w, h);
-
-  for (let i = 0; i < 14; i++) {
-    ctx.fillStyle = i % 2 === 0 ? "#134e2a" : "#165b31";
-    ctx.fillRect(padX + (fieldW / 14) * i, padY, fieldW / 14 + 0.5, fieldH);
-  }
-
-  const floodlight = ctx.createRadialGradient(w / 2, h / 2, 40, w / 2, h / 2, w * 0.58);
-  floodlight.addColorStop(0, "rgba(255, 255, 255, 0.08)");
-  floodlight.addColorStop(0.65, "rgba(0, 0, 0, 0.02)");
-  floodlight.addColorStop(1, "rgba(0, 0, 0, 0.42)");
-  ctx.fillStyle = floodlight;
-  ctx.fillRect(padX, padY, fieldW, fieldH);
-
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.78)";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(padX, padY, fieldW, fieldH);
-
-  ctx.beginPath();
-  ctx.moveTo(w / 2, padY);
-  ctx.lineTo(w / 2, h - padY);
-  ctx.stroke();
-
-  ctx.beginPath();
-  ctx.arc(w / 2, h / 2, 44, 0, Math.PI * 2);
-  ctx.stroke();
-
-  ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
-  ctx.beginPath();
-  ctx.arc(w / 2, h / 2, 3, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.strokeRect(padX, h / 2 - 76, 60, 152);
-  ctx.strokeRect(w - padX - 60, h / 2 - 76, 60, 152);
-  ctx.strokeRect(padX, h / 2 - 38, 22, 76);
-  ctx.strokeRect(w - padX - 22, h / 2 - 38, 22, 76);
-
-  ctx.beginPath();
-  ctx.arc(padX + 42, h / 2, 2.5, 0, Math.PI * 2);
-  ctx.arc(w - padX - 42, h / 2, 2.5, 0, Math.PI * 2);
-  ctx.fill();
-
-  const goalH = 68;
-  const goalDepth = 18;
-  const goalTop = h / 2 - goalH / 2;
-
-  const drawGoalNet = (gx, gw) => {
-    ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
-    ctx.fillRect(gx, goalTop, gw, goalH);
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.28)";
-    ctx.lineWidth = 1;
-    for (let y = goalTop + 6; y < goalTop + goalH; y += 6) {
-      ctx.beginPath();
-      ctx.moveTo(gx, y);
-      ctx.lineTo(gx + gw, y);
-      ctx.stroke();
+  store.update(["liveMatch"], draft => {
+    if (draft.liveMatch && !draft.liveMatch.finished) {
+      draft.liveMatch.paused = !draft.liveMatch.paused;
     }
-    for (let x = gx + 6; x < gx + gw; x += 6) {
-      ctx.beginPath();
-      ctx.moveTo(x, goalTop);
-      ctx.lineTo(x, goalTop + goalH);
-      ctx.stroke();
-    }
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 2.5;
-    ctx.strokeRect(gx, goalTop, gw, goalH);
-  };
-
-  drawGoalNet(padX - goalDepth, goalDepth);
-  drawGoalNet(w - padX, goalDepth);
-
-  const drawTeamAgents = (agents, colors, isHome) => {
-    if (!Array.isArray(agents)) return;
-    const teamKey = isHome ? "home" : "away";
-
-    agents.forEach((a, idx) => {
-      if (a.expelled) return;
-      const px = padX + a.x * fieldW;
-      const py = padY + a.y * fieldH;
-      const isGK = a.posType === "POR";
-      const hasBall = liveMatch.ball?.ownerTeam === teamKey && liveMatch.ball?.ownerId === a.id;
-      const radius = isGK ? 9.5 : 8.5;
-
-      if (hasBall) {
-        ctx.save();
-        ctx.strokeStyle = "rgba(250, 204, 21, 0.85)";
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.arc(px, py, radius + 4.5, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      ctx.fillStyle = "rgba(0, 0, 0, 0.42)";
-      ctx.beginPath();
-      ctx.ellipse(px + 1.5, py + radius - 1, radius * 0.95, radius * 0.5, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      const fill = isGK ? (isHome ? "#facc15" : "#22d3ee") : (colors?.[0] || "#2563eb");
-      const stroke = isGK ? "#090d16" : (colors?.[1] || "#ffffff");
-
-      ctx.fillStyle = fill;
-      ctx.beginPath();
-      ctx.arc(px, py, radius, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = stroke;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      const jerseyNum = idx === 0 ? "1" : String(idx + 1);
-      ctx.fillStyle = isGK ? "#090d16" : "#ffffff";
-      ctx.font = "800 8.5px system-ui, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(jerseyNum, px, py + 0.5);
-
-      if ((a.yellowCards || 0) > 0) {
-        ctx.fillStyle = "#facc15";
-        ctx.fillRect(px + 6, py - 12, 5, 7);
-        ctx.strokeStyle = "#000";
-        ctx.lineWidth = 0.8;
-        ctx.strokeRect(px + 6, py - 12, 5, 7);
-      }
-
-      const stam = a.stamina ?? 100;
-      if (stam < 75) {
-        const barW = 16;
-        const pct = Math.max(0.1, stam / 100);
-        ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
-        ctx.fillRect(px - barW / 2, py + radius + 2, barW, 2.5);
-        ctx.fillStyle = stam > 48 ? "#f59e0b" : "#ef4444";
-        ctx.fillRect(px - barW / 2, py + radius + 2, barW * pct, 2.5);
-      }
-
-      if (a.name) {
-        const lastName = a.name.split(" ").pop();
-        ctx.font = "700 9px system-ui, sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "alphabetic";
-        ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
-        ctx.fillText(lastName, px + 0.8, py + radius + 12.8);
-        ctx.fillStyle = hasBall ? "#fde047" : "rgba(255, 255, 255, 0.92)";
-        ctx.fillText(lastName, px, py + radius + 12);
-      }
-    });
-  };
-
-  drawTeamAgents(liveMatch.homeAgents, liveMatch.homeColors, true);
-  drawTeamAgents(liveMatch.awayAgents, liveMatch.awayColors, false);
-
-  if (ballTrail.length > 1) {
-    for (let i = 0; i < ballTrail.length - 1; i++) {
-      const pt = ballTrail[i];
-      const alpha = ((i + 1) / ballTrail.length) * (pt.isShot ? 0.45 : 0.22);
-      const tx = padX + pt.x * fieldW;
-      const ty = padY + pt.y * fieldH;
-      ctx.fillStyle = pt.isShot ? `rgba(253, 224, 71, ${alpha})` : `rgba(255, 255, 255, ${alpha})`;
-      ctx.beginPath();
-      ctx.arc(tx, ty, 2 + (i * 0.4), 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  const bx = padX + bxVal * fieldW;
-  const by = padY + byVal * fieldH;
-  ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-  ctx.beginPath();
-  ctx.arc(bx + 2, by + 3.5, 4.8, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = liveMatch.ball?.isShot ? "#fde047" : "#ffffff";
-  ctx.beginPath();
-  ctx.arc(bx, by, 5.2, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = "#090d16";
-  ctx.lineWidth = 1.3;
-  ctx.stroke();
-
-  if (liveMatch.goalBanner && liveMatch.goalBanner.timer > 0) {
-    const gb = liveMatch.goalBanner;
-    const progress = 1 - (gb.timer / gb.maxTimer);
-
-    const gx = gb.goalSide === "right" ? w - padX : padX;
-    const gy = h / 2;
-    ctx.save();
-    ctx.strokeStyle = `rgba(250, 204, 21, ${1 - progress})`;
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc(gx, gy, 15 + progress * 110, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.fillStyle = "rgba(9, 13, 22, 0.58)";
-    ctx.fillRect(0, 0, w, h);
-
-    const scale = progress < 0.18 ? (progress / 0.18) * 1.06 : progress < 0.28 ? 1.06 - ((progress - 0.18) / 0.1) * 0.06 : 1;
-    ctx.translate(w / 2, h / 2);
-    ctx.scale(scale, scale);
-
-    const cardW = 400;
-    const cardH = 152;
-    const c1 = gb.colors?.[0] || "#2563eb";
-    const c2 = gb.colors?.[1] || "#facc15";
-
-    ctx.fillStyle = "#0f172a";
-    ctx.beginPath();
-    ctx.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 16);
-    ctx.fill();
-
-    ctx.strokeStyle = c2;
-    ctx.lineWidth = 3;
-    ctx.stroke();
-
-    ctx.fillStyle = c1;
-    ctx.beginPath();
-    ctx.roundRect(-cardW / 2, -cardH / 2, 16, cardH, [16, 0, 0, 16]);
-    ctx.fill();
-
-    ctx.fillStyle = "#facc15";
-    ctx.font = "900 32px system-ui, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("⚽ ¡GOOOL!", 8, -24);
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 18px system-ui, sans-serif";
-    ctx.fillText(`${gb.scorerName}  •  Min ${gb.minute}'`, 8, 12);
-
-    ctx.fillStyle = "#94a3b8";
-    ctx.font = "bold 13px system-ui, sans-serif";
-    ctx.fillText(gb.scoreText, 8, 44);
-
-    ctx.restore();
-  }
+  });
 }
