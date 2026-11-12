@@ -1,9 +1,11 @@
 import { store } from "../core/state.js";
 import { getNextUserEvent, completeRoundWithUserResult, initCompetitions } from "../engine/competitions.js";
-import { startLiveMatch, drawPitch, togglePauseMatch, setTactic, makeLiveSubstitution, FORMATIONS, assignPlayersToSlots } from "../engine/match-live.js";
+import { startLiveMatch, togglePauseMatch, setTactic, makeLiveSubstitution, FORMATIONS, assignPlayersToSlots } from "../engine/match-live.js";
 import { calculateMarketValue, buyPlayer, sellPlayer, maybeGenerateIncomingOffer, respondToTransferOffer } from "../engine/transfers.js";
+import { makeLowballOffer, loanPlayer } from "../engine/market-advanced.js";
+import { runEndOfSeasonTransition } from "../engine/season-transition.js";
 import { triggerPostMatchEvent, resolveInboxChoice } from "../ai/director.js";
-import { processRoundProgression, advanceSeason, renewPlayerContract, recordMatchInCareer } from "../engine/progression.js";
+import { processRoundProgression, renewPlayerContract, recordMatchInCareer } from "../engine/progression.js";
 import { STAFF_CATALOG, getStaffUpgradeCost, upgradeStaff } from "../engine/staff.js";
 import { TRAINING_PLANS, setTrainingPlan } from "../engine/training.js";
 import { getPlayerAttributes, promoteYouthProspect } from "../engine/academy.js";
@@ -11,11 +13,14 @@ import { toggleMute, isAudioMuted } from "../engine/audio.js";
 import { getClubStadium, calculateMatchAttendance } from "../engine/stadium.js";
 import { isPlayerUnavailable, getPlayerStatusBadge, applyPostMatchMedicalAndCards, advanceMedicalRecovery } from "../engine/medical.js";
 import { LEAGUES_CATALOG, buildWorldDatabase } from "../data/world-database.js";
+import { renderEnhancedPitch } from "./pitch-renderer.js";
+import { renderPlayerProfileModal } from "./player-modal.js";
 import { renderClubBadge } from "./badges.js";
 
 let lastLiveLayoutKey = "";
 let selectedPreviewLeague = "esp_1";
 let selectedStandingsView = "league_1";
+let inspectedPlayerId = null;
 
 export function initUI() {
   const root = document.getElementById("view-root");
@@ -125,11 +130,15 @@ function render() {
     }
 
     const canvas = document.getElementById("pitch-canvas");
-    drawPitch(canvas, state.liveMatch);
+    renderEnhancedPitch(canvas, state.liveMatch, state.clubs);
     return;
   }
 
   lastLiveLayoutKey = "";
+  const activeEl = document.activeElement;
+  const wasSearching = activeEl && activeEl.id === "market-search-input";
+  const cursorPos = wasSearching ? activeEl.selectionStart : null;
+
   const userClub = state.clubs[state.userClubId];
   const activeTab = state.activeTab || "home";
   const unreadCount = (state.inbox || []).filter(m => !m.resolved && m.choices?.length > 0).length;
@@ -149,7 +158,7 @@ function render() {
             </div>
             <h2 style="font-size: 17px; font-weight: 900; letter-spacing: -0.01em; margin-bottom: 2px;">${userClub.name}</h2>
             <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px;">
-              ${userClub.flag || "⚽"} ${userClub.leagueName || "Primera División"} • J${Math.min(22, leagueRound)}/22
+              ${userClub.flag || "⚽"} ${userClub.leagueName || "Primera División"} • T${state.season || 1} J${Math.min(22, leagueRound)}/22
             </div>
             <div style="text-align:left; font-size:11px; color:var(--text-muted); margin-bottom:4px;">Confianza Directiva</div>
             ${renderMiniBar(boardConf, confColor)}
@@ -219,9 +228,20 @@ function render() {
         </div>
       </main>
     </div>
+    ${inspectedPlayerId ? renderPlayerProfileModal(state, inspectedPlayerId) : ""}
   `;
 
   bindEvents(state);
+
+  if (wasSearching) {
+    const newInput = document.getElementById("market-search-input");
+    if (newInput) {
+      newInput.focus();
+      if (typeof cursorPos === "number") {
+        newInput.setSelectionRange(cursorPos, cursorPos);
+      }
+    }
+  }
 }
 
 function updateLiveMatchDynamicParts(state) {
@@ -396,7 +416,7 @@ function renderSquadTab(state) {
   return `
     <div class="fm-card">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-        <h3 style="margin: 0;">Plantilla y Contratos (${squad.length} jugadores)</h3>
+        <h3 style="margin: 0;">Plantilla y Contratos (${squad.length} jugadores • Clic en nombre para ver ficha)</h3>
         <span style="padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 800; background: ${startersCount === 11 ? 'rgba(16,185,129,0.18)' : 'rgba(239,68,68,0.18)'}; border: 1px solid ${startersCount === 11 ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)'}; color: ${startersCount === 11 ? 'var(--success)' : 'var(--danger)'};">
           Titulares: ${startersCount} / 11 ${startersCount !== 11 ? '(Ajusta a 11 exactos)' : '✓'}
         </span>
@@ -436,7 +456,10 @@ function renderSquadTab(state) {
                     `}
                   </td>
                   <td>
-                    <b>${p.name}</b> ${p.isYouth ? `<span style="background:rgba(59,130,246,0.25); color:#60a5fa; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CANTERA</span>` : ""} <small style="color: var(--text-muted);">(${p.age}a)</small>
+                    <span class="btn-inspect-player" data-pid="${p.id}" style="cursor:pointer; font-weight:800; text-decoration:underline; text-decoration-color:rgba(255,255,255,0.28); text-underline-offset:3px;">${p.name}</span>
+                    ${p.isYouth ? `<span style="background:rgba(59,130,246,0.25); color:#60a5fa; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CANTERA</span>` : ""}
+                    ${p.isLoaned ? `<span style="background:rgba(168,85,247,0.25); color:#d8b4fe; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CEDIDO</span>` : ""}
+                    <small style="color: var(--text-muted);">(${p.age}a)</small>
                     ${(p.yellowCardsSeason || 0) > 0 ? `<span style="margin-left:4px; font-size:10px; color:#facc15; font-weight:700;">🟨 ${p.yellowCardsSeason}/5</span>` : ""}
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px; display:flex; gap:8px;">
                       <span>RIT <b style="color:#e2e8f0;">${attrs.RIT}</b></span>
@@ -449,16 +472,18 @@ function renderSquadTab(state) {
                   <td>${renderOvrBadge(p.ovr)}</td>
                   <td style="min-width:95px;">${renderMiniBar(morale, moraleColor)}</td>
                   <td style="min-width:95px;">${renderMiniBar(p.stamina, stamColor)}</td>
-                  <td style="color: ${contractColor}; font-weight: 700; white-space:nowrap;">${years} ${years === 1 ? 'año ⚠️' : 'años'}</td>
+                  <td style="color: ${contractColor}; font-weight: 700; white-space:nowrap;">${p.isLoaned ? 'Cesión 1a' : `${years} ${years === 1 ? 'año ⚠️' : 'años'}`}</td>
                   <td style="display: flex; gap: 6px; white-space:nowrap;">
-                    ${years < 4 ? `
+                    ${!p.isLoaned && years < 4 ? `
                       <button class="btn-renew-contract fm-btn fm-btn-primary" data-pid="${p.id}" style="padding: 5px 9px; font-size: 11px;">
                         ✍️ Renovar
                       </button>
                     ` : ""}
-                    <button class="btn-sell-player fm-btn fm-btn-ghost" data-pid="${p.id}" style="padding: 5px 9px; font-size: 11px;">
-                      Vender (${(sellVal / 1e6).toFixed(1)}M)
-                    </button>
+                    ${!p.isLoaned ? `
+                      <button class="btn-sell-player fm-btn fm-btn-ghost" data-pid="${p.id}" style="padding: 5px 9px; font-size: 11px;">
+                        Vender (${(sellVal / 1e6).toFixed(1)}M)
+                      </button>
+                    ` : `<span style="font-size:11px; color:var(--text-muted);">En préstamo</span>`}
                   </td>
                 </tr>
               `;
@@ -653,24 +678,36 @@ function renderTransfersTab(state) {
   const scoutLvl = state.staff?.scout || 1;
   const posFilter = state.marketPosFilter || "ALL";
   const leagueFilter = state.marketLeagueFilter || "ALL";
+  const ageFilter = state.marketAgeFilter || "ALL";
+  const minOvrFilter = Number(state.marketMinOvr || 0);
+  const searchQuery = (state.marketSearchQuery || "").trim();
+  const queryLower = searchQuery.toLowerCase();
 
-  const marketPlayers = Object.values(state.players || {})
-    .filter(p => {
-      if (p.clubId === state.userClubId) return false;
-      if (posFilter !== "ALL" && p.pos !== posFilter) return false;
-      if (leagueFilter !== "ALL") {
-        const clubLeague = state.clubs[p.clubId]?.leagueId;
-        if (clubLeague !== leagueFilter) return false;
-      }
-      return true;
-    })
-    .sort((a, b) => b.ovr - a.ovr)
-    .slice(0, 30);
+  const allExternal = Object.values(state.players || {}).filter(p => p.clubId !== state.userClubId);
+
+  const filtered = allExternal.filter(p => {
+    if (posFilter !== "ALL" && p.pos !== posFilter) return false;
+    if (leagueFilter !== "ALL" && state.clubs[p.clubId]?.leagueId !== leagueFilter) return false;
+    if (ageFilter === "U21" && p.age > 21) return false;
+    if (ageFilter === "PRIME" && (p.age < 22 || p.age > 28)) return false;
+    if (ageFilter === "VET" && p.age < 29) return false;
+    if (minOvrFilter > 0 && p.ovr < minOvrFilter) return false;
+    if (queryLower) {
+      const cName = (state.clubs[p.clubId]?.name || "").toLowerCase();
+      if (!p.name.toLowerCase().includes(queryLower) && !cName.includes(queryLower)) return false;
+    }
+    return true;
+  });
+
+  const marketPlayers = filtered.sort((a, b) => b.ovr - a.ovr).slice(0, 35);
 
   return `
     <div class="fm-card">
       <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 14px;">
-        <h3 style="margin: 0;">Mercado Mundial — 4 Ligas (Descuento Ojeador: -${(scoutLvl - 1) * 6}%)</h3>
+        <div>
+          <h3 style="margin: 0;">Mercado Mundial — 864 Jugadores (${filtered.length} resultados)</h3>
+          <small style="color: var(--text-muted);">Descuento Ojeador Nvl ${scoutLvl}: <b>-${(scoutLvl - 1) * 6}%</b> • Haz clic en un jugador para abrir su ficha completa</small>
+        </div>
         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
           <button class="btn-filter-league fm-btn ${leagueFilter === 'ALL' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="ALL" style="padding: 5px 9px; font-size: 11px;">🌍 Todas</button>
           ${LEAGUES_CATALOG.map(l => `
@@ -681,12 +718,46 @@ function renderTransfersTab(state) {
         </div>
       </div>
 
-      <div style="display: flex; gap: 6px; margin-bottom: 14px;">
-        ${["ALL", "POR", "DEF", "MED", "DEL"].map(pos => `
-          <button class="btn-filter-pos fm-btn ${posFilter === pos ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-pos="${pos}" style="padding: 5px 10px; font-size: 12px;">
-            ${pos === "ALL" ? "Todas las Posiciones" : pos}
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-bottom: 14px; background: rgba(6,9,19,0.68); padding: 12px; border-radius: 12px; border: 1px solid var(--panel-border);">
+        <div>
+          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">🔍 Buscar Jugador o Club</label>
+          <input id="market-search-input" type="text" value="${searchQuery.replace(/"/g, "&quot;")}" placeholder="Ej: García, Haaland, Madrid..." style="width:100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
+        </div>
+
+        <div>
+          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">🎂 Rango de Edad</label>
+          <select id="market-age-select" style="width:100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
+            <option value="ALL" ${ageFilter === "ALL" ? "selected" : ""}>Todas las edades</option>
+            <option value="U21" ${ageFilter === "U21" ? "selected" : ""}>Sub-21 (Promesas ≤ 21a)</option>
+            <option value="PRIME" ${ageFilter === "PRIME" ? "selected" : ""}>Plenitud (22 - 28 años)</option>
+            <option value="VET" ${ageFilter === "VET" ? "selected" : ""}>Veteranos (29+ años)</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">⭐ Media Mínima (OVR)</label>
+          <select id="market-ovr-select" style="width:100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
+            <option value="0" ${minOvrFilter === 0 ? "selected" : ""}>Cualquier OVR</option>
+            <option value="75" ${minOvrFilter === 75 ? "selected" : ""}>OVR 75+ (Titular Liga)</option>
+            <option value="80" ${minOvrFilter === 80 ? "selected" : ""}>OVR 80+ (Estrella Continental)</option>
+            <option value="84" ${minOvrFilter === 84 ? "selected" : ""}>OVR 84+ (Clase Mundial)</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 14px;">
+        <div style="display: flex; gap: 6px;">
+          ${["ALL", "POR", "DEF", "MED", "DEL"].map(pos => `
+            <button class="btn-filter-pos fm-btn ${posFilter === pos ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-pos="${pos}" style="padding: 5px 10px; font-size: 12px;">
+              ${pos === "ALL" ? "Todas las Posiciones" : pos}
+            </button>
+          `).join("")}
+        </div>
+        ${(posFilter !== "ALL" || leagueFilter !== "ALL" || ageFilter !== "ALL" || minOvrFilter > 0 || searchQuery) ? `
+          <button id="btn-clear-market-filters" class="fm-btn fm-btn-ghost" style="padding: 5px 10px; font-size: 11.5px; color: #fca5a5;">
+            ✕ Limpiar Filtros
           </button>
-        `).join("")}
+        ` : ""}
       </div>
 
       <div style="overflow-x:auto;">
@@ -698,20 +769,26 @@ function renderTransfersTab(state) {
               <th>Pos</th>
               <th>Edad</th>
               <th>OVR</th>
-              <th>Valor</th>
-              <th>Acción</th>
+              <th>Tasación</th>
+              <th>Negociación</th>
             </tr>
           </thead>
           <tbody>
-            ${marketPlayers.map(p => {
+            ${marketPlayers.length === 0 ? `
+              <tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-muted);">No hay futbolistas que coincidan con esos filtros.</td></tr>
+            ` : marketPlayers.map(p => {
               const attrs = getPlayerAttributes(p);
               const val = calculateMarketValue(p, scoutLvl);
-              const canAfford = state.budget >= val;
+              const lowVal = Math.round(val * 0.82);
+              const loanVal = Math.max(400000, Math.round(val * 0.25));
+              const canBuy = (state.budget || 0) >= val;
+              const canLow = (state.budget || 0) >= lowVal;
+              const canLoan = (state.budget || 0) >= loanVal && !p.isLoaned;
               const c = state.clubs[p.clubId];
               return `
                 <tr>
                   <td>
-                    <b>${p.name}</b>
+                    <span class="btn-inspect-player" data-pid="${p.id}" style="cursor:pointer; font-weight:800; text-decoration:underline; text-decoration-color:rgba(255,255,255,0.28); text-underline-offset:3px;">${p.name}</span>
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px; display:flex; gap:8px;">
                       <span>RIT <b style="color:#e2e8f0;">${attrs.RIT}</b></span>
                       <span>TIR <b style="color:#e2e8f0;">${attrs.TIR}</b></span>
@@ -721,13 +798,21 @@ function renderTransfersTab(state) {
                   </td>
                   <td style="color: var(--text-muted);">${renderClubBadge(c, 20)} <b>${c?.name || "-"}</b> <small>(${c?.flag || ""})</small></td>
                   <td><span class="fm-badge-pos">${p.pos}</span></td>
-                  <td>${p.age}</td>
+                  <td>${p.age}a</td>
                   <td>${renderOvrBadge(p.ovr)}</td>
                   <td><b>${(val / 1e6).toFixed(2)} M€</b></td>
                   <td>
-                    <button class="btn-buy-player fm-btn ${canAfford ? 'fm-btn-primary' : ''}" data-pid="${p.id}" ${!canAfford ? 'disabled' : ''} style="padding: 6px 12px; font-size: 12px; ${!canAfford ? 'background: #334155; opacity: 0.5; cursor: not-allowed;' : ''}">
-                      Fichar
-                    </button>
+                    <div style="display:flex; flex-wrap:wrap; gap:5px;">
+                      <button class="btn-buy-player fm-btn ${canBuy ? 'fm-btn-primary' : ''}" data-pid="${p.id}" ${!canBuy ? 'disabled' : ''} title="Compra inmediata" style="padding: 5px 9px; font-size: 11px; ${!canBuy ? 'background:#334155; opacity:0.45; cursor:not-allowed;' : ''}">
+                        Fichar
+                      </button>
+                      <button class="btn-lowball-player fm-btn fm-btn-ghost" data-pid="${p.id}" ${!canLow ? 'disabled' : ''} title="Oferta a la baja (-18%)" style="padding: 5px 8px; font-size: 11px; border-color: rgba(245,158,11,0.45); color: #fde047; ${!canLow ? 'opacity:0.4; cursor:not-allowed;' : ''}">
+                        🤝 ${(lowVal / 1e6).toFixed(1)}M
+                      </button>
+                      <button class="btn-loan-player fm-btn fm-btn-ghost" data-pid="${p.id}" ${!canLoan ? 'disabled' : ''} title="Cesión 1 temporada (25%)" style="padding: 5px 8px; font-size: 11px; border-color: rgba(168,85,247,0.45); color: #d8b4fe; ${!canLoan ? 'opacity:0.4; cursor:not-allowed;' : ''}">
+                        📋 Ceder (${(loanVal / 1e6).toFixed(1)}M)
+                      </button>
+                    </div>
                   </td>
                 </tr>
               `;
@@ -755,7 +840,7 @@ function renderInboxTab(state) {
               <b>${m.title}</b>
               <small style="color: var(--text-muted);">${m.date}</small>
             </div>
-            <p style="margin-bottom: 12px; color: #cbd5e1;">${m.body}</p>
+            <p style="margin-bottom: 12px; color: #cbd5e1; line-height: 1.55;">${m.body}</p>
             ${m.choices && m.choices.length > 0 && !m.resolved ? `
               <div style="display: flex; flex-wrap: wrap; gap: 8px;">
                 ${m.choices.map((c, idx) => `
@@ -821,7 +906,7 @@ function renderTopScorersCard(state) {
               return `
                 <tr class="${p.clubId === state.userClubId ? 'highlight-row' : ''}">
                   <td><b>${i + 1}</b></td>
-                  <td><b>${p.name}</b></td>
+                  <td><span class="btn-inspect-player" data-pid="${p.id}" style="cursor:pointer; font-weight:800; text-decoration:underline; text-decoration-color:rgba(255,255,255,0.28); text-underline-offset:3px;">${p.name}</span></td>
                   <td style="color: var(--text-muted);">${c?.flag || ""} ${c?.name || "-"}</td>
                   <td><b style="color: var(--success); font-size:14px;">${p.goals}</b></td>
                 </tr>
@@ -877,7 +962,10 @@ function renderLeagueTableCard(state, leagueKey = "league_1") {
 
   return `
     <div class="fm-card">
-      <h3>Clasificación - ${comp.name}</h3>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h3 style="margin:0;">Clasificación - ${comp.name}</h3>
+        <span style="font-size:11px; color:#60a5fa; font-weight:700;">Top 2 → Copa Continental</span>
+      </div>
       <div style="overflow-x:auto;">
         <table class="fm-table">
           <thead>
@@ -895,7 +983,7 @@ function renderLeagueTableCard(state, leagueKey = "league_1") {
           <tbody>
             ${sorted.map((t, i) => `
               <tr class="${t.clubId === state.userClubId ? 'highlight-row' : ''}">
-                <td style="${i < 4 ? 'color: #60a5fa; font-weight: 800;' : ''}">${i + 1}</td>
+                <td style="${i < 2 ? 'color: #34d399; font-weight: 900;' : i < 4 ? 'color: #60a5fa; font-weight: 800;' : ''}">${i + 1}</td>
                 <td>${renderClubBadge(t.club, 20)} <b>${t.name}</b></td>
                 <td>${t.pj}</td>
                 <td>${t.w}</td>
@@ -1179,6 +1267,31 @@ function bindEvents(state) {
     });
   });
 
+  document.getElementById("market-search-input")?.addEventListener("input", e => {
+    const val = e.target.value;
+    store.update(["marketSearchQuery"], draft => { draft.marketSearchQuery = val; });
+  });
+
+  document.getElementById("market-age-select")?.addEventListener("change", e => {
+    const val = e.target.value;
+    store.update(["marketAgeFilter"], draft => { draft.marketAgeFilter = val; });
+  });
+
+  document.getElementById("market-ovr-select")?.addEventListener("change", e => {
+    const val = Number(e.target.value);
+    store.update(["marketMinOvr"], draft => { draft.marketMinOvr = val; });
+  });
+
+  document.getElementById("btn-clear-market-filters")?.addEventListener("click", () => {
+    store.update(["marketPosFilter", "marketLeagueFilter", "marketAgeFilter", "marketMinOvr", "marketSearchQuery"], draft => {
+      draft.marketPosFilter = "ALL";
+      draft.marketLeagueFilter = "ALL";
+      draft.marketAgeFilter = "ALL";
+      draft.marketMinOvr = 0;
+      draft.marketSearchQuery = "";
+    });
+  });
+
   document.querySelectorAll(".btn-select-standings").forEach(btn => {
     btn.addEventListener("click", () => {
       selectedStandingsView = btn.dataset.lid;
@@ -1218,6 +1331,20 @@ function bindEvents(state) {
           alert(res.msg);
         }
       }
+    });
+  });
+
+  document.querySelectorAll(".btn-lowball-player").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const res = makeLowballOffer(btn.dataset.pid);
+      alert(res.msg);
+    });
+  });
+
+  document.querySelectorAll(".btn-loan-player").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const res = loanPlayer(btn.dataset.pid);
+      if (!res.ok) alert(res.msg);
     });
   });
 
@@ -1264,6 +1391,74 @@ function bindEvents(state) {
 }
 
 document.addEventListener("click", e => {
+  // Apertura y cierre de Ficha Detallada del Jugador (Salto 4)
+  const inspectEl = e.target.closest(".btn-inspect-player");
+  if (inspectEl) {
+    inspectedPlayerId = inspectEl.dataset.pid;
+    render();
+    return;
+  }
+
+  if (e.target.id === "btn-close-player-modal" || e.target.id === "player-modal-backdrop") {
+    inspectedPlayerId = null;
+    render();
+    return;
+  }
+
+  const modalBuyBtn = e.target.closest(".btn-modal-buy");
+  if (modalBuyBtn) {
+    const pid = modalBuyBtn.dataset.pid;
+    const res = buyPlayer(pid, false);
+    if (!res.ok) {
+      if (res.needsCounter && confirm(`${res.msg}\n\n¿Deseas aceptar la contraoferta y ficharlo ahora?`)) {
+        const retry = buyPlayer(pid, true);
+        if (!retry.ok) alert(retry.msg);
+        else inspectedPlayerId = null;
+      } else if (!res.needsCounter) {
+        alert(res.msg);
+      }
+    } else {
+      inspectedPlayerId = null;
+    }
+    render();
+    return;
+  }
+
+  const modalLowBtn = e.target.closest(".btn-modal-lowball");
+  if (modalLowBtn) {
+    const res = makeLowballOffer(modalLowBtn.dataset.pid);
+    alert(res.msg);
+    if (res.ok) inspectedPlayerId = null;
+    render();
+    return;
+  }
+
+  const modalLoanBtn = e.target.closest(".btn-modal-loan");
+  if (modalLoanBtn) {
+    const res = loanPlayer(modalLoanBtn.dataset.pid);
+    if (!res.ok) alert(res.msg);
+    else inspectedPlayerId = null;
+    render();
+    return;
+  }
+
+  const modalRenewBtn = e.target.closest(".btn-modal-renew");
+  if (modalRenewBtn) {
+    const res = renewPlayerContract(modalRenewBtn.dataset.pid);
+    if (!res.ok) alert(res.msg);
+    render();
+    return;
+  }
+
+  const modalSellBtn = e.target.closest(".btn-modal-sell");
+  if (modalSellBtn) {
+    const res = sellPlayer(modalSellBtn.dataset.pid);
+    if (!res.ok) alert(res.msg);
+    else inspectedPlayerId = null;
+    render();
+    return;
+  }
+
   const previewLeagueBtn = e.target.closest(".btn-preview-league");
   if (previewLeagueBtn) {
     selectedPreviewLeague = previewLeagueBtn.dataset.lid;
@@ -1330,8 +1525,8 @@ document.addEventListener("click", e => {
       const league = stateAfter.competitions.league_1;
       if (league.currentRound >= league.schedule.length) {
         setTimeout(() => {
-          alert(`¡Temporada ${stateAfter.season || 1} Finalizada! Avanzas a la siguiente temporada.`);
-          advanceSeason();
+          runEndOfSeasonTransition();
+          alert(`¡Temporada ${stateAfter.season || 1} Finalizada! Revisa tu Bandeja IA para ver la Gala de Premios y los clasificados a Europa.`);
         }, 300);
       }
     }
