@@ -8,6 +8,8 @@ import { STAFF_CATALOG, getStaffUpgradeCost, upgradeStaff } from "../engine/staf
 import { TRAINING_PLANS, setTrainingPlan } from "../engine/training.js";
 import { getPlayerAttributes, promoteYouthProspect } from "../engine/academy.js";
 import { toggleMute, isAudioMuted } from "../engine/audio.js";
+import { getClubStadium, calculateMatchAttendance } from "../engine/stadium.js";
+import { isPlayerUnavailable, getPlayerStatusBadge, applyPostMatchMedicalAndCards, advanceMedicalRecovery } from "../engine/medical.js";
 import { renderClubBadge } from "./badges.js";
 
 let lastLiveLayoutKey = "";
@@ -123,6 +125,7 @@ function render() {
   const nextEvent = getNextUserEvent(state);
   const boardConf = state.boardConfidence || 85;
   const confColor = boardConf >= 75 ? "#10b981" : boardConf >= 50 ? "#f59e0b" : "#ef4444";
+  const userStadium = getClubStadium(userClub, state.staff?.stadium || 1);
 
   root.innerHTML = `
     <div class="fm-app-shell">
@@ -144,7 +147,7 @@ function render() {
             ${renderTabBtn("home", "🏟️ Centro del Club", activeTab, userClub.colors[0])}
             ${renderTabBtn("squad", "👕 Plantilla", activeTab, userClub.colors[0])}
             ${renderTabBtn("tactics", "📋 Pizarra Táctica", activeTab, userClub.colors[0])}
-            ${renderTabBtn("staff", "🎓 Staff y Cantera", activeTab, userClub.colors[0])}
+            ${renderTabBtn("staff", "🎓 Staff y Estadio", activeTab, userClub.colors[0])}
             ${renderTabBtn("transfers", "💼 Mercado Fichajes", activeTab, userClub.colors[0])}
             ${renderTabBtn("inbox", "📩 Bandeja IA", activeTab, userClub.colors[0], unreadCount)}
             ${renderTabBtn("table", "🏆 Competiciones", activeTab, userClub.colors[0])}
@@ -181,10 +184,10 @@ function render() {
               </div>
             </div>
             <div class="fm-kpi-pill">
-              <span>📅</span>
+              <span>🏟️</span>
               <div>
-                <small>COMPETICIÓN</small><br>
-                <b>${nextEvent ? nextEvent.compName : "Fin de Temporada"}</b>
+                <small>${userStadium.name.toUpperCase()}</small><br>
+                <b>${userStadium.capacity.toLocaleString()} esp.</b>
               </div>
             </div>
           </div>
@@ -269,7 +272,8 @@ function renderTabBtn(id, label, activeTab, color, badgeCount = 0) {
 function renderHomeTab(state) {
   const nextEvent = getNextUserEvent(state);
   const userPlayers = Object.values(state.players || {}).filter(p => p.clubId === state.userClubId);
-  const startersCount = userPlayers.filter(p => p.starter).length;
+  const startersCount = userPlayers.filter(p => p.starter && !isPlayerUnavailable(p)).length;
+  const unavailableCount = userPlayers.filter(p => isPlayerUnavailable(p)).length;
   const fin = state.lastFinanceReport;
   const trophies = state.trophies || [];
   const cs = state.careerStats || { played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0 };
@@ -283,11 +287,25 @@ function renderHomeTab(state) {
     const away = state.clubs[aId];
     const isCup = nextEvent.compId === "cup_1";
     const isCont = nextEvent.compId === "cont_1";
+    const isUserHome = hId === state.userClubId;
+    const attInfo = calculateMatchAttendance(
+      home,
+      isUserHome ? (state.boardConfidence || 80) : 82,
+      nextEvent.compId,
+      isUserHome ? (state.staff?.stadium || 1) : 1
+    );
     matchTitle = nextEvent.compName;
 
     matchCard = `
-      ${isCont ? `<div style="display:inline-block; background:linear-gradient(90deg, #2563eb, #3b82f6); color:#fff; font-weight:800; font-size:11px; padding:3px 10px; border-radius:6px; margin-bottom:10px; letter-spacing:0.04em;">🌍 COPA CONTINENTAL ÉLITE</div>` : ""}
-      ${isCup ? `<div style="display:inline-block; background:linear-gradient(90deg, #d97706, #f59e0b); color:#000; font-weight:800; font-size:11px; padding:3px 10px; border-radius:6px; margin-bottom:10px; letter-spacing:0.04em;">🏆 ELIMINATORIA DE COPA</div>` : ""}
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
+        <div>
+          ${isCont ? `<span style="display:inline-block; background:linear-gradient(90deg, #2563eb, #3b82f6); color:#fff; font-weight:800; font-size:11px; padding:3px 10px; border-radius:6px; letter-spacing:0.04em;">🌍 COPA CONTINENTAL ÉLITE</span>` : ""}
+          ${isCup ? `<span style="display:inline-block; background:linear-gradient(90deg, #d97706, #f59e0b); color:#000; font-weight:800; font-size:11px; padding:3px 10px; border-radius:6px; letter-spacing:0.04em;">🏆 ELIMINATORIA DE COPA</span>` : ""}
+        </div>
+        <span style="font-size:11.5px; color:var(--text-muted); font-weight:700;">
+          🏟️ ${attInfo.stadiumName} • <b style="color:#e2e8f0;">${attInfo.attendance.toLocaleString()}</b> esp. (${attInfo.fillPct}%)
+        </span>
+      </div>
       <div class="fm-match-box" style="display: flex; align-items: center; justify-content: space-around; gap: 12px;">
         <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;">
           ${renderClubBadge(home, 44)}
@@ -327,16 +345,20 @@ function renderHomeTab(state) {
       </div>
 
       <div class="fm-card">
-        <h3>Historial de Mánager y Palmarés</h3>
+        <h3>Historial de Mánager y Enfermería</h3>
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; background: rgba(6, 9, 19, 0.78); padding: 12px; border-radius: 12px; border: 1px solid var(--panel-border); text-align: center; margin-bottom: 14px;">
           <div><small style="color: var(--text-muted); display:block; font-size:10.5px;">PJ</small><b style="font-size:19px;">${cs.played}</b></div>
           <div><small style="color: var(--text-muted); display:block; font-size:10.5px;">GANADOS</small><b style="color: var(--success); font-size:19px;">${cs.wins}</b></div>
           <div><small style="color: var(--text-muted); display:block; font-size:10.5px;">EMPATADOS</small><b style="font-size:19px;">${cs.draws}</b></div>
           <div><small style="color: var(--text-muted); display:block; font-size:10.5px;">PERDIDOS</small><b style="color: var(--danger); font-size:19px;">${cs.losses}</b></div>
         </div>
-        <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:8px;">
-          <span>Alineación Titular:</span>
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:6px;">
+          <span>Titulares Disponibles:</span>
           <b style="color: ${startersCount === 11 ? 'var(--success)' : 'var(--danger)'};">${startersCount} / 11 jugadores ${startersCount === 11 ? '✓' : '⚠️'}</b>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:8px;">
+          <span>Enfermería / Sancionados:</span>
+          <b style="color: ${unavailableCount > 0 ? '#f59e0b' : 'var(--text-muted)'};">${unavailableCount} ${unavailableCount === 1 ? 'baja' : 'bajas'}</b>
         </div>
         <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--panel-border);">
           <small style="color: var(--text-muted); display: block; margin-bottom: 8px; font-weight: 700; text-transform: uppercase;">Vitrina de Trofeos (${trophies.length})</small>
@@ -357,7 +379,7 @@ function renderSquadTab(state) {
     .filter(p => p.clubId === state.userClubId)
     .sort((a, b) => (b.starter === a.starter ? b.ovr - a.ovr : b.starter ? 1 : -1));
 
-  const startersCount = squad.filter(p => p.starter).length;
+  const startersCount = squad.filter(p => p.starter && !isPlayerUnavailable(p)).length;
 
   return `
     <div class="fm-card">
@@ -371,7 +393,7 @@ function renderSquadTab(state) {
         <table class="fm-table">
           <thead>
             <tr>
-              <th>Rol</th>
+              <th>Rol / Estado</th>
               <th>Jugador y Atributos</th>
               <th>Pos</th>
               <th>OVR</th>
@@ -384,6 +406,8 @@ function renderSquadTab(state) {
           <tbody>
             ${squad.map(p => {
               const attrs = getPlayerAttributes(p);
+              const unavail = isPlayerUnavailable(p);
+              const statusBadge = getPlayerStatusBadge(p);
               const stamColor = p.stamina > 70 ? '#10b981' : p.stamina > 45 ? '#f59e0b' : '#ef4444';
               const morale = p.morale ?? 85;
               const moraleColor = morale >= 80 ? '#10b981' : morale < 55 ? '#ef4444' : '#38bdf8';
@@ -391,14 +415,17 @@ function renderSquadTab(state) {
               const contractColor = years <= 1 ? 'var(--danger)' : 'var(--text-muted)';
               const sellVal = Math.round(calculateMarketValue(p, 1) * 0.85);
               return `
-                <tr class="${p.starter ? 'highlight-row' : ''}">
+                <tr class="${p.starter && !unavail ? 'highlight-row' : ''}" style="${unavail ? 'opacity:0.78;' : ''}">
                   <td>
-                    <button class="btn-toggle-starter fm-btn" data-pid="${p.id}" style="padding: 5px 10px; font-size: 11px; background: ${p.starter ? 'linear-gradient(135deg, #10b981, #059669)' : 'rgba(51,65,85,0.85)'};">
-                      ${p.starter ? '★ Titular' : 'Suplente'}
-                    </button>
+                    ${unavail ? statusBadge : `
+                      <button class="btn-toggle-starter fm-btn" data-pid="${p.id}" style="padding: 5px 10px; font-size: 11px; background: ${p.starter ? 'linear-gradient(135deg, #10b981, #059669)' : 'rgba(51,65,85,0.85)'};">
+                        ${p.starter ? '★ Titular' : 'Suplente'}
+                      </button>
+                    `}
                   </td>
                   <td>
                     <b>${p.name}</b> ${p.isYouth ? `<span style="background:rgba(59,130,246,0.25); color:#60a5fa; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CANTERA</span>` : ""} <small style="color: var(--text-muted);">(${p.age}a)</small>
+                    ${(p.yellowCardsSeason || 0) > 0 ? `<span style="margin-left:4px; font-size:10px; color:#facc15; font-weight:700;">🟨 ${p.yellowCardsSeason}/5</span>` : ""}
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px; display:flex; gap:8px;">
                       <span>RIT <b style="color:#e2e8f0;">${attrs.RIT}</b></span>
                       <span>TIR <b style="color:#e2e8f0;">${attrs.TIR}</b></span>
@@ -432,9 +459,11 @@ function renderSquadTab(state) {
 }
 
 function renderStaffTab(state) {
-  const staff = state.staff || { fitness: 1, scout: 1, youth: 1 };
+  const staff = state.staff || { fitness: 1, scout: 1, youth: 1, stadium: 1 };
   const activePlan = state.trainingPlan || "balanced";
   const youthPromotedThisSeason = (state.lastYouthSeason || 0) >= (state.season || 1);
+  const userClub = state.clubs[state.userClubId];
+  const stadium = getClubStadium(userClub, staff.stadium || 1);
 
   return `
     <div class="fm-card">
@@ -469,11 +498,11 @@ function renderStaffTab(state) {
     </div>
 
     <div class="fm-card">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-        <h3 style="margin: 0;">Cuerpo Técnico e Instalaciones</h3>
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap:wrap; gap:8px; margin-bottom: 16px;">
+        <h3 style="margin: 0;">Cuerpo Técnico e Infraestructura (🏟️ ${stadium.name}: ${stadium.capacity.toLocaleString()} localidades)</h3>
         <span>Presupuesto: <b style="color: var(--success);">${((state.budget || 0) / 1e6).toFixed(2)} M€</b></span>
       </div>
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
         ${Object.values(STAFF_CATALOG).map(item => {
           const lvl = staff[item.key] || 1;
           const cost = getStaffUpgradeCost(item.key, lvl);
@@ -508,7 +537,7 @@ function renderTacticsTab(state) {
   const formation = club.formation || "4-3-3";
   const kitMode = club.kitMode || "home";
   const starters = Object.values(state.players || {})
-    .filter(p => p.clubId === state.userClubId && p.starter)
+    .filter(p => p.clubId === state.userClubId && p.starter && !isPlayerUnavailable(p))
     .slice(0, 11);
 
   const assigned = assignPlayersToSlots(starters, formation);
@@ -838,9 +867,17 @@ function renderLiveMatchView(state) {
   const activeTactic = isUserHome ? (m.homeTactic || "Equilibrado") : (m.awayTactic || "Equilibrado");
   const userAgents = isUserHome ? m.homeAgents : m.awayAgents;
   const onPitchIds = new Set(userAgents.map(a => a.playerId));
-  const benchPlayers = Object.values(state.players || {}).filter(p => p.clubId === state.userClubId && !onPitchIds.has(p.id));
+  const benchPlayers = Object.values(state.players || {}).filter(
+    p => p.clubId === state.userClubId && !onPitchIds.has(p.id) && !isPlayerUnavailable(p)
+  );
   const homeClub = state.clubs[m.homeId];
   const awayClub = state.clubs[m.awayId];
+  const attInfo = calculateMatchAttendance(
+    homeClub,
+    isUserHome ? (state.boardConfidence || 80) : 82,
+    state.activeCompId || "league_1",
+    isUserHome ? (state.staff?.stadium || 1) : 1
+  );
 
   const totalPoss = (m.stats?.homePoss || 1) + (m.stats?.awayPoss || 1);
   const homePossPct = Math.round(((m.stats?.homePoss || 1) / totalPoss) * 100);
@@ -849,6 +886,11 @@ function renderLiveMatchView(state) {
   return `
     <div class="fm-container" style="max-width: 900px;">
       <div class="fm-card">
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:11.5px; color:var(--text-muted); margin-bottom:8px; padding:0 4px;">
+          <span>🏟️ <b style="color:#e2e8f0;">${attInfo.stadiumName}</b></span>
+          <span>Asistencia: <b style="color:#34d399;">${attInfo.attendance.toLocaleString()}</b> / ${attInfo.capacity.toLocaleString()} (${attInfo.fillPct}%)</span>
+        </div>
+
         <div style="display: flex; justify-content: space-between; align-items: center; background: linear-gradient(90deg, ${homeClub.colors[0]}33, #060911 30%, #060911 70%, ${awayClub.colors[0]}33); padding: 14px 22px; border-radius: 12px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.14);">
           <div style="display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 800;">
             ${renderClubBadge(homeClub, 36)}
@@ -953,6 +995,7 @@ function renderClubSelection(state) {
 
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(275px, 1fr)); gap: 14px;">
         ${clubs.map(c => {
+          const stadium = getClubStadium(c, 1);
           const tier = c.ovr >= 82 ? { label: "Favorito al Título", color: "#fde047" }
                      : c.ovr >= 78 ? { label: "Aspirante Europeo", color: "#38bdf8" }
                      : { label: "Proyecto / Reto", color: "#34d399" };
@@ -969,9 +1012,15 @@ function renderClubSelection(state) {
                 </div>
                 ${renderOvrBadge(c.ovr)}
               </div>
-              <div style="display:flex; justify-content:space-between; align-items:center; width:100%; padding-top:8px; border-top:1px solid rgba(255,255,255,0.08); font-size:12px; color:var(--text-muted);">
-                <span>Presupuesto Inicial</span>
-                <b style="color:#34d399;">${(c.budget / 1e6).toFixed(0)} M€</b>
+              <div style="width:100%; padding-top:8px; border-top:1px solid rgba(255,255,255,0.08); display:grid; gap:4px; font-size:12px; color:var(--text-muted);">
+                <div style="display:flex; justify-content:space-between;">
+                  <span>Presupuesto Inicial</span>
+                  <b style="color:#34d399;">${(c.budget / 1e6).toFixed(0)} M€</b>
+                </div>
+                <div style="display:flex; justify-content:space-between; font-size:11.5px;">
+                  <span>🏟️ ${stadium.name}</span>
+                  <b style="color:#e2e8f0;">${stadium.capacity.toLocaleString()}</b>
+                </div>
               </div>
             </button>
           `;
@@ -996,6 +1045,13 @@ function bindEvents(state) {
   const launchNextMatch = () => {
     const nextEvent = getNextUserEvent(state);
     if (nextEvent) {
+      const userSquad = Object.values(state.players || {}).filter(p => p.clubId === state.userClubId);
+      const validStarters = userSquad.filter(p => p.starter && !isPlayerUnavailable(p)).length;
+      if (validStarters !== 11) {
+        alert(`Necesitas exactamente 11 titulares disponibles (tienes ${validStarters}). Ajusta tu plantilla antes de jugar.`);
+        store.update(["activeTab"], draft => { draft.activeTab = "squad"; });
+        return;
+      }
       const isKnockout = nextEvent.compId === "cup_1" || nextEvent.compId === "cont_1";
       store.update(["activeCompId"], draft => { draft.activeCompId = nextEvent.compId; });
       startLiveMatch(nextEvent.match[0], nextEvent.match[1], null, isKnockout);
@@ -1017,6 +1073,8 @@ function bindEvents(state) {
   document.querySelectorAll(".btn-toggle-starter").forEach(btn => {
     btn.addEventListener("click", () => {
       const pid = btn.dataset.pid;
+      const p = store.get().players[pid];
+      if (!p || isPlayerUnavailable(p)) return;
       store.update(["players"], draft => {
         draft.players[pid].starter = !draft.players[pid].starter;
       });
@@ -1177,6 +1235,10 @@ document.addEventListener("click", e => {
     if (m) {
       const compId = stateBefore.activeCompId || "league_1";
       const wasUserHome = m.homeId === stateBefore.userClubId;
+
+      advanceMedicalRecovery();
+      applyPostMatchMedicalAndCards(m);
+
       completeRoundWithUserResult(m.homeId, m.awayId, m.gh, m.ga, compId);
       recordMatchInCareer(m.gh, m.ga);
       processRoundProgression(wasUserHome);
