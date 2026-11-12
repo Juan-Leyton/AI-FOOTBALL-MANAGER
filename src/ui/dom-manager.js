@@ -4,6 +4,10 @@ import { startLiveMatch, togglePauseMatch, setTactic, makeLiveSubstitution, FORM
 import { calculateMarketValue, buyPlayer, sellPlayer, maybeGenerateIncomingOffer, respondToTransferOffer } from "../engine/transfers.js";
 import { makeLowballOffer, loanPlayer } from "../engine/market-advanced.js";
 import { runEndOfSeasonTransition } from "../engine/season-transition.js";
+import { autoPickBestXI } from "../engine/squad-manager.js";
+import { simulateQuickMatch } from "../engine/quick-sim.js";
+import { SCOUTING_REGIONS, scoutYouthRegion, signProspectToAcademy, promoteAcademyPlayerToFirstTeam, releaseAcademyPlayer } from "../engine/youth-scouting.js";
+import { ensureFreeAgentsPool, getFreeAgentSignBonus, signFreeAgent, retrainPlayerPosition, applyIndividualFocus } from "../engine/player-development.js";
 import { triggerPostMatchEvent, resolveInboxChoice } from "../ai/director.js";
 import { processRoundProgression, renewPlayerContract, recordMatchInCareer } from "../engine/progression.js";
 import { STAFF_CATALOG, getStaffUpgradeCost, upgradeStaff } from "../engine/staff.js";
@@ -15,6 +19,7 @@ import { isPlayerUnavailable, getPlayerStatusBadge, applyPostMatchMedicalAndCard
 import { LEAGUES_CATALOG, buildWorldDatabase } from "../data/world-database.js";
 import { renderEnhancedPitch } from "./pitch-renderer.js";
 import { renderPlayerProfileModal } from "./player-modal.js";
+import { showToast } from "./toast.js";
 import { renderClubBadge } from "./badges.js";
 
 let lastLiveLayoutKey = "";
@@ -46,6 +51,7 @@ export function initUI() {
     });
   }
 
+  ensureFreeAgentsPool();
   store.subscribe(render);
   render();
 }
@@ -168,7 +174,7 @@ function render() {
             ${renderTabBtn("home", "🏟️ Centro del Club", activeTab, userClub.colors[0])}
             ${renderTabBtn("squad", "👕 Plantilla", activeTab, userClub.colors[0])}
             ${renderTabBtn("tactics", "📋 Pizarra Táctica", activeTab, userClub.colors[0])}
-            ${renderTabBtn("staff", "🎓 Staff y Estadio", activeTab, userClub.colors[0])}
+            ${renderTabBtn("staff", "🎓 Academia y Staff", activeTab, userClub.colors[0])}
             ${renderTabBtn("transfers", "💼 Mercado Global", activeTab, userClub.colors[0])}
             ${renderTabBtn("inbox", "📩 Bandeja IA", activeTab, userClub.colors[0], unreadCount)}
             ${renderTabBtn("table", "🏆 Competiciones", activeTab, userClub.colors[0])}
@@ -177,8 +183,11 @@ function render() {
 
         <div style="display: grid; gap: 8px; padding-top: 14px; border-top: 1px solid var(--panel-border);">
           ${nextEvent ? `
-            <button id="btn-sidebar-play" class="fm-btn fm-btn-play" style="padding: 12px 14px; font-size: 13.5px;">
-              ⚽ Jugar Partido
+            <button id="btn-sidebar-play" class="fm-btn fm-btn-play" style="padding: 11px 14px; font-size: 13px;">
+              ⚽ Jugar en Vivo
+            </button>
+            <button id="btn-sidebar-quicksim" class="fm-btn fm-btn-ghost" style="padding: 9px 12px; font-size: 12px; border-color: rgba(56,189,248,0.4); color: #7dd3fc;">
+              ⚡ Simular Partido
             </button>
           ` : ""}
           <button id="btn-reset" class="fm-btn fm-btn-ghost" style="width: 100%; font-size: 12px;">
@@ -353,9 +362,14 @@ function renderHomeTab(state) {
           <span style="font-size: 11px; color: var(--text-muted);">${away.flag || ""} OVR ${away.ovr}</span>
         </div>
       </div>
-      <button id="btn-play-match" data-comp="${nextEvent.compId}" class="fm-btn fm-btn-play">
-        ⚽ Jugar Partido en Vivo
-      </button>
+      <div style="display:grid; grid-template-columns: 1.4fr 1fr; gap:8px; margin-top:10px;">
+        <button id="btn-play-match" data-comp="${nextEvent.compId}" class="fm-btn fm-btn-play" style="margin-top:0;">
+          ⚽ Jugar en Vivo
+        </button>
+        <button id="btn-quick-sim" class="fm-btn fm-btn-ghost" style="border-color:rgba(56,189,248,0.45); color:#7dd3fc; font-weight:800;">
+          ⚡ Simulación Rápida
+        </button>
+      </div>
     `;
   }
 
@@ -386,7 +400,10 @@ function renderHomeTab(state) {
         </div>
         <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:6px;">
           <span>Titulares Disponibles:</span>
-          <b style="color: ${startersCount === 11 ? 'var(--success)' : 'var(--danger)'};">${startersCount} / 11 jugadores ${startersCount === 11 ? '✓' : '⚠️'}</b>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <b style="color: ${startersCount === 11 ? 'var(--success)' : 'var(--danger)'};">${startersCount} / 11 ${startersCount === 11 ? '✓' : '⚠️'}</b>
+            ${startersCount !== 11 ? `<button class="btn-auto-best-xi fm-btn fm-btn-primary" style="padding:3px 8px; font-size:11px;">⚡ Mejor XI</button>` : ""}
+          </div>
         </div>
         <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:8px;">
           <span>Enfermería / Sancionados:</span>
@@ -415,11 +432,19 @@ function renderSquadTab(state) {
 
   return `
     <div class="fm-card">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-        <h3 style="margin: 0;">Plantilla y Contratos (${squad.length} jugadores • Clic en nombre para ver ficha)</h3>
-        <span style="padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 800; background: ${startersCount === 11 ? 'rgba(16,185,129,0.18)' : 'rgba(239,68,68,0.18)'}; border: 1px solid ${startersCount === 11 ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)'}; color: ${startersCount === 11 ? 'var(--success)' : 'var(--danger)'};">
-          Titulares: ${startersCount} / 11 ${startersCount !== 11 ? '(Ajusta a 11 exactos)' : '✓'}
-        </span>
+      <div style="display: flex; flex-wrap:wrap; justify-content: space-between; align-items: center; gap:10px; margin-bottom: 14px;">
+        <div>
+          <h3 style="margin: 0;">Plantilla y Contratos (${squad.length} jugadores)</h3>
+          <small style="color:var(--text-muted);">Haz clic en un jugador para entrenarlo, cambiar su posición o renovar</small>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button class="btn-auto-best-xi fm-btn fm-btn-primary" style="padding: 6px 12px; font-size: 12px;">
+            ⚡ Mejor XI Disponible
+          </button>
+          <span style="padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 800; background: ${startersCount === 11 ? 'rgba(16,185,129,0.18)' : 'rgba(239,68,68,0.18)'}; border: 1px solid ${startersCount === 11 ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)'}; color: ${startersCount === 11 ? 'var(--success)' : 'var(--danger)'};">
+            Titulares: ${startersCount} / 11 ${startersCount === 11 ? '✓' : '⚠️'}
+          </span>
+        </div>
       </div>
       <div style="overflow-x:auto;">
         <table class="fm-table">
@@ -437,7 +462,14 @@ function renderSquadTab(state) {
           </thead>
           <tbody>
             ${squad.map(p => {
-              const attrs = getPlayerAttributes(p);
+              const baseAttrs = getPlayerAttributes(p);
+              const boosts = p.customBoosts || {};
+              const attrs = {
+                RIT: Math.min(99, baseAttrs.RIT + (boosts.RIT || 0)),
+                TIR: Math.min(99, baseAttrs.TIR + (boosts.TIR || 0)),
+                PAS: Math.min(99, baseAttrs.PAS + (boosts.PAS || 0)),
+                DEF: Math.min(99, baseAttrs.DEF + (boosts.DEF || 0))
+              };
               const unavail = isPlayerUnavailable(p);
               const statusBadge = getPlayerStatusBadge(p);
               const stamColor = p.stamina > 70 ? '#10b981' : p.stamina > 45 ? '#f59e0b' : '#ef4444';
@@ -501,19 +533,88 @@ function renderStaffTab(state) {
   const youthPromotedThisSeason = (state.lastYouthSeason || 0) >= (state.season || 1);
   const userClub = state.clubs[state.userClubId];
   const stadium = getClubStadium(userClub, staff.stadium || 1);
+  const youthReports = state.youthReports || [];
+  const youthAcademy = state.youthAcademy || [];
 
   return `
     <div class="fm-card">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-        <h3 style="margin: 0;">🎓 Cantera y Promoción de Juveniles</h3>
-        <span style="background:rgba(59,130,246,0.2); border:1px solid rgba(59,130,246,0.4); padding:3px 10px; border-radius:8px; font-size: 12px; color: #60a5fa; font-weight: 800;">Academia Nvl ${staff.youth || 1}</span>
+      <div style="display: flex; flex-wrap:wrap; justify-content: space-between; align-items: center; gap:8px; margin-bottom: 12px;">
+        <div>
+          <h3 style="margin: 0;">🔭 Red de Ojeadores Juveniles y Academia Sub-18 (${youthAcademy.length}/8)</h3>
+          <small style="color:var(--text-muted);">Envía ojeadores a países clave, ficha promesas con alto Potencial (POT) y súbelas al primer equipo</small>
+        </div>
+        <span style="background:rgba(59,130,246,0.2); border:1px solid rgba(59,130,246,0.4); padding:4px 10px; border-radius:8px; font-size: 12px; color: #60a5fa; font-weight: 800;">Academia Nvl ${staff.youth || 1}</span>
       </div>
-      <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 14px;">
-        Otea y sube al primer equipo a la mejor promesa sub-18 de tu cantera esta temporada (Coste: 1.50 M€).
-      </p>
-      <button id="btn-promote-youth" class="fm-btn fm-btn-primary" ${youthPromotedThisSeason ? 'disabled style="background:#334155; opacity:0.5; cursor:not-allowed;"' : ''}>
-        ${youthPromotedThisSeason ? '✓ Promesa de esta temporada ya promovida' : '🌟 Promover Juvenil al Primer Equipo (1.50 M€)'}
-      </button>
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(175px, 1fr)); gap:8px; margin-bottom:16px;">
+        ${SCOUTING_REGIONS.map(reg => `
+          <button class="btn-scout-region fm-btn fm-btn-ghost" data-region="${reg.id}" style="text-align:left; padding:10px 12px; display:flex; flex-direction:column; gap:3px; border-color:${state.lastScoutRegion === reg.id ? '#3b82f6' : 'var(--panel-border)'};">
+            <div style="display:flex; justify-content:space-between; width:100%; font-weight:800; font-size:13px;">
+              <span>${reg.flag} ${reg.name}</span>
+              <span style="color:#34d399;">${(reg.cost / 1e6).toFixed(2)}M</span>
+            </div>
+            <small style="color:var(--text-muted); font-size:11px;">${reg.specialty}</small>
+          </button>
+        `).join("")}
+      </div>
+
+      ${youthReports.length > 0 ? `
+        <div style="background:rgba(6,9,19,0.72); border:1px solid rgba(59,130,246,0.35); border-radius:12px; padding:12px; margin-bottom:14px;">
+          <div style="font-size:11.5px; font-weight:800; color:#60a5fa; text-transform:uppercase; margin-bottom:10px;">📋 Informe Actual de Ojeadores (Fichar para Academia)</div>
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">
+            ${youthReports.map(rep => `
+              <div style="background:rgba(15,23,42,0.9); border:1px solid var(--panel-border); border-radius:10px; padding:10px; display:flex; flex-direction:column; justify-content:space-between; gap:8px;">
+                <div>
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <b>${rep.countryFlag} ${rep.name}</b>
+                    <span class="fm-badge-pos">${rep.pos}</span>
+                  </div>
+                  <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+                    ${rep.age} años • OVR <b style="color:#fff;">${rep.ovr}</b> • POT <b style="color:#fde047;">${rep.potMin}-${rep.potMax}</b>
+                  </div>
+                </div>
+                <button class="btn-sign-academy fm-btn fm-btn-primary" data-repid="${rep.id}" style="width:100%; padding:6px 10px; font-size:11.5px;">
+                  ✍️ Fichar Beca (${(rep.signFee / 1e6).toFixed(2)} M€)
+                </button>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+      ` : ""}
+
+      ${youthAcademy.length > 0 ? `
+        <div style="background:rgba(6,9,19,0.72); border:1px solid rgba(16,185,129,0.35); border-radius:12px; padding:12px; margin-bottom:12px;">
+          <div style="font-size:11.5px; font-weight:800; color:#34d399; text-transform:uppercase; margin-bottom:10px;">🎓 Plantilla Juvenil Sub-18 en Formación</div>
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:10px;">
+            ${youthAcademy.map(ac => `
+              <div style="background:rgba(15,23,42,0.9); border:1px solid var(--panel-border); border-radius:10px; padding:10px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <b>${ac.countryFlag} ${ac.name}</b>
+                  <span class="fm-badge-pos">${ac.pos}</span>
+                </div>
+                <div style="font-size:12px; color:var(--text-muted); margin:5px 0 9px;">
+                  ${ac.age} años • OVR <b style="color:#fff;">${ac.ovr}</b> • POT <b style="color:#34d399;">${ac.potMin}-${ac.potMax}</b>
+                </div>
+                <div style="display:flex; gap:6px;">
+                  <button class="btn-promote-academy-player fm-btn fm-btn-primary" data-acid="${ac.id}" style="flex:1; padding:5px 8px; font-size:11px;">
+                    ⬆️ Subir al 1er Equipo
+                  </button>
+                  <button class="btn-release-academy-player fm-btn fm-btn-ghost" data-acid="${ac.id}" style="padding:5px 8px; font-size:11px; color:#fca5a5;">
+                    ✕
+                  </button>
+                </div>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+      ` : ""}
+
+      <div style="padding-top:10px; border-top:1px solid var(--panel-border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <span style="font-size:12px; color:var(--text-muted);">Promoción directa rápida de cantera local (1 por temporada):</span>
+        <button id="btn-promote-youth" class="fm-btn fm-btn-ghost" ${youthPromotedThisSeason ? 'disabled style="opacity:0.45; cursor:not-allowed;"' : ''} style="font-size:12px; padding:6px 12px;">
+          ${youthPromotedThisSeason ? '✓ Promoción directa usada esta temporada' : '🌟 Promoción Directa Rápida (1.50 M€)'}
+        </button>
+      </div>
     </div>
 
     <div class="fm-card">
@@ -591,7 +692,10 @@ function renderTacticsTab(state) {
       <div class="fm-card">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
           <h3 style="margin: 0;">Pizarra Táctica (${formation})</h3>
-          ${outOfPosCount > 0 ? `<span style="color: #fbbf24; font-size: 12px; font-weight: 700;">⚠️ ${outOfPosCount} fuera de puesto</span>` : `<span style="color: var(--success); font-size: 12px; font-weight: 700;">✓ Roles cubiertos</span>`}
+          <div style="display:flex; align-items:center; gap:8px;">
+            <button class="btn-auto-best-xi fm-btn fm-btn-primary" style="padding:4px 10px; font-size:11px;">⚡ Mejor XI</button>
+            ${outOfPosCount > 0 ? `<span style="color: #fbbf24; font-size: 12px; font-weight: 700;">⚠️ ${outOfPosCount} fuera de puesto</span>` : `<span style="color: var(--success); font-size: 12px; font-weight: 700;">✓ Roles cubiertos</span>`}
+          </div>
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 16px;">
@@ -687,13 +791,17 @@ function renderTransfersTab(state) {
 
   const filtered = allExternal.filter(p => {
     if (posFilter !== "ALL" && p.pos !== posFilter) return false;
-    if (leagueFilter !== "ALL" && state.clubs[p.clubId]?.leagueId !== leagueFilter) return false;
+    if (leagueFilter === "FREE") {
+      if (p.clubId !== "free_agent") return false;
+    } else if (leagueFilter !== "ALL") {
+      if (state.clubs[p.clubId]?.leagueId !== leagueFilter) return false;
+    }
     if (ageFilter === "U21" && p.age > 21) return false;
     if (ageFilter === "PRIME" && (p.age < 22 || p.age > 28)) return false;
     if (ageFilter === "VET" && p.age < 29) return false;
     if (minOvrFilter > 0 && p.ovr < minOvrFilter) return false;
     if (queryLower) {
-      const cName = (state.clubs[p.clubId]?.name || "").toLowerCase();
+      const cName = p.clubId === "free_agent" ? "agente libre" : (state.clubs[p.clubId]?.name || "").toLowerCase();
       if (!p.name.toLowerCase().includes(queryLower) && !cName.includes(queryLower)) return false;
     }
     return true;
@@ -705,11 +813,12 @@ function renderTransfersTab(state) {
     <div class="fm-card">
       <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 14px;">
         <div>
-          <h3 style="margin: 0;">Mercado Mundial — 864 Jugadores (${filtered.length} resultados)</h3>
-          <small style="color: var(--text-muted);">Descuento Ojeador Nvl ${scoutLvl}: <b>-${(scoutLvl - 1) * 6}%</b> • Haz clic en un jugador para abrir su ficha completa</small>
+          <h3 style="margin: 0;">Mercado Mundial y Agentes Libres (${filtered.length} resultados)</h3>
+          <small style="color: var(--text-muted);">Descuento Ojeador Nvl ${scoutLvl}: <b>-${(scoutLvl - 1) * 6}%</b> • Haz clic en un jugador para abrir su ficha</small>
         </div>
         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
           <button class="btn-filter-league fm-btn ${leagueFilter === 'ALL' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="ALL" style="padding: 5px 9px; font-size: 11px;">🌍 Todas</button>
+          <button class="btn-filter-league fm-btn ${leagueFilter === 'FREE' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="FREE" style="padding: 5px 9px; font-size: 11px; border-color:rgba(16,185,129,0.5); color:#34d399;">🆓 Libres (0M)</button>
           ${LEAGUES_CATALOG.map(l => `
             <button class="btn-filter-league fm-btn ${leagueFilter === l.id ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="${l.id}" style="padding: 5px 9px; font-size: 11px;">
               ${l.flag} ${l.country}
@@ -721,7 +830,7 @@ function renderTransfersTab(state) {
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-bottom: 14px; background: rgba(6,9,19,0.68); padding: 12px; border-radius: 12px; border: 1px solid var(--panel-border);">
         <div>
           <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">🔍 Buscar Jugador o Club</label>
-          <input id="market-search-input" type="text" value="${searchQuery.replace(/"/g, "&quot;")}" placeholder="Ej: García, Haaland, Madrid..." style="width:100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
+          <input id="market-search-input" type="text" value="${searchQuery.replace(/"/g, "&quot;")}" placeholder="Ej: Ramos, García, Madrid..." style="width:100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
         </div>
 
         <div>
@@ -765,11 +874,11 @@ function renderTransfersTab(state) {
           <thead>
             <tr>
               <th>Jugador y Atributos</th>
-              <th>Club y Liga</th>
+              <th>Club / Situación</th>
               <th>Pos</th>
               <th>Edad</th>
               <th>OVR</th>
-              <th>Tasación</th>
+              <th>Coste</th>
               <th>Negociación</th>
             </tr>
           </thead>
@@ -778,12 +887,13 @@ function renderTransfersTab(state) {
               <tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-muted);">No hay futbolistas que coincidan con esos filtros.</td></tr>
             ` : marketPlayers.map(p => {
               const attrs = getPlayerAttributes(p);
-              const val = calculateMarketValue(p, scoutLvl);
+              const isFree = p.clubId === "free_agent";
+              const val = isFree ? getFreeAgentSignBonus(p) : calculateMarketValue(p, scoutLvl);
               const lowVal = Math.round(val * 0.82);
               const loanVal = Math.max(400000, Math.round(val * 0.25));
               const canBuy = (state.budget || 0) >= val;
-              const canLow = (state.budget || 0) >= lowVal;
-              const canLoan = (state.budget || 0) >= loanVal && !p.isLoaned;
+              const canLow = !isFree && (state.budget || 0) >= lowVal;
+              const canLoan = !isFree && (state.budget || 0) >= loanVal && !p.isLoaned;
               const c = state.clubs[p.clubId];
               return `
                 <tr>
@@ -796,23 +906,33 @@ function renderTransfersTab(state) {
                       <span>DEF <b style="color:#e2e8f0;">${attrs.DEF}</b></span>
                     </div>
                   </td>
-                  <td style="color: var(--text-muted);">${renderClubBadge(c, 20)} <b>${c?.name || "-"}</b> <small>(${c?.flag || ""})</small></td>
+                  <td style="color: var(--text-muted);">
+                    ${isFree
+                      ? `<span style="background:rgba(16,185,129,0.2); color:#34d399; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:800;">🆓 Agente Libre</span>`
+                      : `${renderClubBadge(c, 20)} <b>${c?.name || "-"}</b> <small>(${c?.flag || ""})</small>`}
+                  </td>
                   <td><span class="fm-badge-pos">${p.pos}</span></td>
                   <td>${p.age}a</td>
                   <td>${renderOvrBadge(p.ovr)}</td>
-                  <td><b>${(val / 1e6).toFixed(2)} M€</b></td>
+                  <td><b>${(val / 1e6).toFixed(2)} M€</b> ${isFree ? `<small style="color:#34d399; display:block; font-size:10px;">Prima firma</small>` : ""}</td>
                   <td>
-                    <div style="display:flex; flex-wrap:wrap; gap:5px;">
-                      <button class="btn-buy-player fm-btn ${canBuy ? 'fm-btn-primary' : ''}" data-pid="${p.id}" ${!canBuy ? 'disabled' : ''} title="Compra inmediata" style="padding: 5px 9px; font-size: 11px; ${!canBuy ? 'background:#334155; opacity:0.45; cursor:not-allowed;' : ''}">
-                        Fichar
+                    ${isFree ? `
+                      <button class="btn-sign-free-agent fm-btn ${canBuy ? 'fm-btn-primary' : ''}" data-pid="${p.id}" ${!canBuy ? 'disabled' : ''} style="padding: 5px 11px; font-size: 11px; ${!canBuy ? 'background:#334155; opacity:0.45; cursor:not-allowed;' : ''}">
+                        🆓 Fichar Libre
                       </button>
-                      <button class="btn-lowball-player fm-btn fm-btn-ghost" data-pid="${p.id}" ${!canLow ? 'disabled' : ''} title="Oferta a la baja (-18%)" style="padding: 5px 8px; font-size: 11px; border-color: rgba(245,158,11,0.45); color: #fde047; ${!canLow ? 'opacity:0.4; cursor:not-allowed;' : ''}">
-                        🤝 ${(lowVal / 1e6).toFixed(1)}M
-                      </button>
-                      <button class="btn-loan-player fm-btn fm-btn-ghost" data-pid="${p.id}" ${!canLoan ? 'disabled' : ''} title="Cesión 1 temporada (25%)" style="padding: 5px 8px; font-size: 11px; border-color: rgba(168,85,247,0.45); color: #d8b4fe; ${!canLoan ? 'opacity:0.4; cursor:not-allowed;' : ''}">
-                        📋 Ceder (${(loanVal / 1e6).toFixed(1)}M)
-                      </button>
-                    </div>
+                    ` : `
+                      <div style="display:flex; flex-wrap:wrap; gap:5px;">
+                        <button class="btn-buy-player fm-btn ${canBuy ? 'fm-btn-primary' : ''}" data-pid="${p.id}" ${!canBuy ? 'disabled' : ''} title="Compra inmediata" style="padding: 5px 9px; font-size: 11px; ${!canBuy ? 'background:#334155; opacity:0.45; cursor:not-allowed;' : ''}">
+                          Fichar
+                        </button>
+                        <button class="btn-lowball-player fm-btn fm-btn-ghost" data-pid="${p.id}" ${!canLow ? 'disabled' : ''} title="Oferta a la baja (-18%)" style="padding: 5px 8px; font-size: 11px; border-color: rgba(245,158,11,0.45); color: #fde047; ${!canLow ? 'opacity:0.4; cursor:not-allowed;' : ''}">
+                          🤝 ${(lowVal / 1e6).toFixed(1)}M
+                        </button>
+                        <button class="btn-loan-player fm-btn fm-btn-ghost" data-pid="${p.id}" ${!canLoan ? 'disabled' : ''} title="Cesión 1 temporada (25%)" style="padding: 5px 8px; font-size: 11px; border-color: rgba(168,85,247,0.45); color: #d8b4fe; ${!canLoan ? 'opacity:0.4; cursor:not-allowed;' : ''}">
+                          📋 Ceder (${(loanVal / 1e6).toFixed(1)}M)
+                        </button>
+                      </div>
+                    `}
                   </td>
                 </tr>
               `;
@@ -1177,6 +1297,27 @@ function renderClubSelection(state) {
   `;
 }
 
+function runQuickSimulationFlow() {
+  const res = simulateQuickMatch();
+  if (!res.ok) {
+    showToast(res.msg, "warning");
+    if (res.needsLineup) {
+      store.update(["activeTab"], draft => { draft.activeTab = "squad"; });
+    }
+    return;
+  }
+
+  showToast(res.msg, res.outcome || "info", 4500);
+
+  if (res.seasonFinished) {
+    const seasonNum = store.get().season || 1;
+    setTimeout(() => {
+      runEndOfSeasonTransition();
+      showToast(`🏆 ¡Temporada ${seasonNum} Finalizada! Revisa tu Bandeja IA para ver la Gala de Premios.`, "success", 5500);
+    }, 350);
+  }
+}
+
 function bindEvents(state) {
   document.getElementById("btn-reset")?.addEventListener("click", () => {
     localStorage.clear();
@@ -1195,7 +1336,7 @@ function bindEvents(state) {
       const userSquad = Object.values(state.players || {}).filter(p => p.clubId === state.userClubId);
       const validStarters = userSquad.filter(p => p.starter && !isPlayerUnavailable(p)).length;
       if (validStarters !== 11) {
-        alert(`Necesitas exactamente 11 titulares disponibles (tienes ${validStarters}). Ajusta tu plantilla antes de jugar.`);
+        showToast(`Necesitas 11 titulares disponibles (tienes ${validStarters}). Usa "⚡ Mejor XI" o ajusta tu plantilla.`, "warning");
         store.update(["activeTab"], draft => { draft.activeTab = "squad"; });
         return;
       }
@@ -1207,6 +1348,15 @@ function bindEvents(state) {
 
   document.getElementById("btn-play-match")?.addEventListener("click", launchNextMatch);
   document.getElementById("btn-sidebar-play")?.addEventListener("click", launchNextMatch);
+  document.getElementById("btn-quick-sim")?.addEventListener("click", runQuickSimulationFlow);
+  document.getElementById("btn-sidebar-quicksim")?.addEventListener("click", runQuickSimulationFlow);
+
+  document.querySelectorAll(".btn-auto-best-xi").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const res = autoPickBestXI();
+      showToast(res.msg, res.ok ? "success" : "warning");
+    });
+  });
 
   document.getElementById("btn-gen-event")?.addEventListener("click", () => {
     triggerPostMatchEvent();
@@ -1214,7 +1364,35 @@ function bindEvents(state) {
 
   document.getElementById("btn-promote-youth")?.addEventListener("click", () => {
     const res = promoteYouthProspect();
-    if (!res.ok) alert(res.msg);
+    showToast(res.msg, res.ok ? "success" : "warning");
+  });
+
+  document.querySelectorAll(".btn-scout-region").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const res = scoutYouthRegion(btn.dataset.region);
+      showToast(res.msg, res.ok ? "success" : "warning");
+    });
+  });
+
+  document.querySelectorAll(".btn-sign-academy").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const res = signProspectToAcademy(btn.dataset.repid);
+      showToast(res.msg, res.ok ? "success" : "warning");
+    });
+  });
+
+  document.querySelectorAll(".btn-promote-academy-player").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const res = promoteAcademyPlayerToFirstTeam(btn.dataset.acid);
+      showToast(res.msg, res.ok ? "success" : "warning");
+    });
+  });
+
+  document.querySelectorAll(".btn-release-academy-player").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const res = releaseAcademyPlayer(btn.dataset.acid);
+      showToast(res.msg, "info");
+    });
   });
 
   document.querySelectorAll(".btn-toggle-starter").forEach(btn => {
@@ -1231,27 +1409,28 @@ function bindEvents(state) {
   document.querySelectorAll(".btn-renew-contract").forEach(btn => {
     btn.addEventListener("click", () => {
       const res = renewPlayerContract(btn.dataset.pid);
-      if (!res.ok) alert(res.msg);
+      showToast(res.msg, res.ok ? "success" : "warning");
     });
   });
 
   document.querySelectorAll(".btn-sell-player").forEach(btn => {
     btn.addEventListener("click", () => {
       const res = sellPlayer(btn.dataset.pid);
-      if (!res.ok) alert(res.msg);
+      showToast(res.msg, res.ok ? "success" : "warning");
     });
   });
 
   document.querySelectorAll(".btn-training-plan").forEach(btn => {
     btn.addEventListener("click", () => {
       setTrainingPlan(btn.dataset.plan);
+      showToast("Plan de entrenamiento semanal actualizado.", "info");
     });
   });
 
   document.querySelectorAll(".btn-upgrade-staff").forEach(btn => {
     btn.addEventListener("click", () => {
       const res = upgradeStaff(btn.dataset.key);
-      if (!res.ok) alert(res.msg);
+      showToast(res.msg, res.ok ? "success" : "warning");
     });
   });
 
@@ -1325,26 +1504,35 @@ function bindEvents(state) {
         if (res.needsCounter) {
           if (confirm(`${res.msg}\n\n¿Deseas aceptar la contraoferta y ficharlo ahora?`)) {
             const retry = buyPlayer(pid, true);
-            if (!retry.ok) alert(retry.msg);
+            showToast(retry.msg, retry.ok ? "success" : "error");
           }
         } else {
-          alert(res.msg);
+          showToast(res.msg, "warning");
         }
+      } else {
+        showToast(res.msg, "success");
       }
+    });
+  });
+
+  document.querySelectorAll(".btn-sign-free-agent").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const res = signFreeAgent(btn.dataset.pid);
+      showToast(res.msg, res.ok ? "success" : "warning");
     });
   });
 
   document.querySelectorAll(".btn-lowball-player").forEach(btn => {
     btn.addEventListener("click", () => {
       const res = makeLowballOffer(btn.dataset.pid);
-      alert(res.msg);
+      showToast(res.msg, res.ok ? "success" : "warning");
     });
   });
 
   document.querySelectorAll(".btn-loan-player").forEach(btn => {
     btn.addEventListener("click", () => {
       const res = loanPlayer(btn.dataset.pid);
-      if (!res.ok) alert(res.msg);
+      showToast(res.msg, res.ok ? "success" : "warning");
     });
   });
 
@@ -1391,7 +1579,6 @@ function bindEvents(state) {
 }
 
 document.addEventListener("click", e => {
-  // Apertura y cierre de Ficha Detallada del Jugador (Salto 4)
   const inspectEl = e.target.closest(".btn-inspect-player");
   if (inspectEl) {
     inspectedPlayerId = inspectEl.dataset.pid;
@@ -1405,6 +1592,31 @@ document.addEventListener("click", e => {
     return;
   }
 
+  const modalRetrainBtn = e.target.closest(".btn-modal-retrain");
+  if (modalRetrainBtn) {
+    const res = retrainPlayerPosition(modalRetrainBtn.dataset.pid, modalRetrainBtn.dataset.pos);
+    showToast(res.msg, res.ok ? "success" : "warning");
+    render();
+    return;
+  }
+
+  const modalFocusBtn = e.target.closest(".btn-modal-focus");
+  if (modalFocusBtn) {
+    const res = applyIndividualFocus(modalFocusBtn.dataset.pid, modalFocusBtn.dataset.focus);
+    showToast(res.msg, res.ok ? "success" : "warning");
+    render();
+    return;
+  }
+
+  const modalFreeBtn = e.target.closest(".btn-modal-free-agent");
+  if (modalFreeBtn) {
+    const res = signFreeAgent(modalFreeBtn.dataset.pid);
+    showToast(res.msg, res.ok ? "success" : "warning");
+    if (res.ok) inspectedPlayerId = null;
+    render();
+    return;
+  }
+
   const modalBuyBtn = e.target.closest(".btn-modal-buy");
   if (modalBuyBtn) {
     const pid = modalBuyBtn.dataset.pid;
@@ -1412,12 +1624,13 @@ document.addEventListener("click", e => {
     if (!res.ok) {
       if (res.needsCounter && confirm(`${res.msg}\n\n¿Deseas aceptar la contraoferta y ficharlo ahora?`)) {
         const retry = buyPlayer(pid, true);
-        if (!retry.ok) alert(retry.msg);
-        else inspectedPlayerId = null;
+        showToast(retry.msg, retry.ok ? "success" : "error");
+        if (retry.ok) inspectedPlayerId = null;
       } else if (!res.needsCounter) {
-        alert(res.msg);
+        showToast(res.msg, "warning");
       }
     } else {
+      showToast(res.msg, "success");
       inspectedPlayerId = null;
     }
     render();
@@ -1427,7 +1640,7 @@ document.addEventListener("click", e => {
   const modalLowBtn = e.target.closest(".btn-modal-lowball");
   if (modalLowBtn) {
     const res = makeLowballOffer(modalLowBtn.dataset.pid);
-    alert(res.msg);
+    showToast(res.msg, res.ok ? "success" : "warning");
     if (res.ok) inspectedPlayerId = null;
     render();
     return;
@@ -1436,8 +1649,8 @@ document.addEventListener("click", e => {
   const modalLoanBtn = e.target.closest(".btn-modal-loan");
   if (modalLoanBtn) {
     const res = loanPlayer(modalLoanBtn.dataset.pid);
-    if (!res.ok) alert(res.msg);
-    else inspectedPlayerId = null;
+    showToast(res.msg, res.ok ? "success" : "warning");
+    if (res.ok) inspectedPlayerId = null;
     render();
     return;
   }
@@ -1445,7 +1658,7 @@ document.addEventListener("click", e => {
   const modalRenewBtn = e.target.closest(".btn-modal-renew");
   if (modalRenewBtn) {
     const res = renewPlayerContract(modalRenewBtn.dataset.pid);
-    if (!res.ok) alert(res.msg);
+    showToast(res.msg, res.ok ? "success" : "warning");
     render();
     return;
   }
@@ -1453,8 +1666,8 @@ document.addEventListener("click", e => {
   const modalSellBtn = e.target.closest(".btn-modal-sell");
   if (modalSellBtn) {
     const res = sellPlayer(modalSellBtn.dataset.pid);
-    if (!res.ok) alert(res.msg);
-    else inspectedPlayerId = null;
+    showToast(res.msg, res.ok ? "success" : "warning");
+    if (res.ok) inspectedPlayerId = null;
     render();
     return;
   }
@@ -1475,6 +1688,7 @@ document.addEventListener("click", e => {
       draft.competitions = initCompetitions(draft.clubs, clubId);
       draft.activeCompId = "league_1";
     });
+    ensureFreeAgentsPool();
   }
 
   const audioBtn = e.target.closest("#btn-toggle-audio");
@@ -1493,7 +1707,7 @@ document.addEventListener("click", e => {
     const outIdx = Number(document.getElementById("sub-out-select")?.value);
     const inPid = document.getElementById("sub-in-select")?.value;
     const res = makeLiveSubstitution(outIdx, inPid);
-    if (!res.ok) alert(res.msg);
+    showToast(res.msg, res.ok ? "success" : "warning");
   }
 
   const liveMentBtn = e.target.closest(".btn-live-mentality");
@@ -1526,7 +1740,7 @@ document.addEventListener("click", e => {
       if (league.currentRound >= league.schedule.length) {
         setTimeout(() => {
           runEndOfSeasonTransition();
-          alert(`¡Temporada ${stateAfter.season || 1} Finalizada! Revisa tu Bandeja IA para ver la Gala de Premios y los clasificados a Europa.`);
+          showToast(`🏆 ¡Temporada ${stateAfter.season || 1} Finalizada! Revisa tu Bandeja IA para ver la Gala de Premios.`, "success", 5500);
         }, 300);
       }
     }
