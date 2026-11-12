@@ -1,6 +1,7 @@
 import { store } from "../core/state.js";
 
 let matchInterval = null;
+const MAX_GOALS_PER_TEAM = 5;
 
 export const FORMATIONS = {
   "4-3-3": [
@@ -45,7 +46,7 @@ function createAgentFromSlot({ slot, player, outOfPosition }, i, isHome) {
   const effectiveOvr = Math.max(55, rawOvr + moraleBonus + posPenalty);
 
   const stamina = player?.stamina ?? 100;
-  const skillFactor = 0.88 + ((effectiveOvr - 70) * 0.011);
+  const skillFactor = 0.90 + ((effectiveOvr - 75) * 0.010);
 
   return {
     id: i,
@@ -62,7 +63,7 @@ function createAgentFromSlot({ slot, player, outOfPosition }, i, isHome) {
     y: slot.y,
     vx: 0,
     vy: 0,
-    speed: (0.0068 + Math.random() * 0.0014) * skillFactor,
+    speed: (0.0056 + Math.random() * 0.0010) * skillFactor,
     decisionTimer: 0,
     noiseOffset: Math.random() * 100
   };
@@ -150,7 +151,6 @@ export function startLiveMatch(homeId, awayId, onFinish) {
       return;
     }
 
-    // Clonar agentes y balón para mutarlos de forma segura sin pisar cambios de UI (táctica/pausa/sustituciones)
     const ball = { ...m.ball };
     const homeAgents = m.homeAgents.map(a => ({ ...a }));
     const awayAgents = m.awayAgents.map(a => ({ ...a }));
@@ -170,7 +170,6 @@ export function startLiveMatch(homeId, awayId, onFinish) {
     if (ball.ownerTeam === "home") newStats.homePoss += 1;
     else if (ball.ownerTeam === "away") newStats.awayPoss += 1;
 
-    // IA RIVAL DINÁMICA: Solo cambia la táctica del equipo controlado por la IA
     if (nextTick % 120 === 0 && currentMin >= 55) {
       const userIsHome = m.homeId === currentState.userClubId;
       if (userIsHome) {
@@ -201,42 +200,42 @@ export function startLiveMatch(homeId, awayId, onFinish) {
       const sTempo = Number(sliders?.tempo ?? 50);
       const sPress = Number(sliders?.press ?? 50);
 
-      const sliderShift = ((sMentality - 50) / 50) * 0.08;
-      const tempoFactor = 0.78 + (sTempo / 100) * 0.45;
-      const pressFactor = 0.65 + (sPress / 100) * 0.75;
+      const sliderShift = ((sMentality - 50) / 50) * 0.07;
+      const tempoFactor = 0.85 + (sTempo / 100) * 0.35;
+      const pressFactor = 0.70 + (sPress / 100) * 0.65;
 
       if (tacticLabel === "Ofensivo") {
         return {
-          blockShift: 0.24 + sliderShift,
-          pressRange: 0.34 * pressFactor,
-          passSpeed: 0.031 * tempoFactor,
-          shootRange: 0.34,
-          shootAggression: 0.62,
-          dribbleRatio: 0.46,
-          decisionDelay: Math.max(3, Math.round(9 / tempoFactor)),
-          defLineCap: 0.46
+          blockShift: 0.22 + sliderShift,
+          pressRange: 0.32 * pressFactor,
+          passSpeed: 0.025 * tempoFactor,
+          shootRange: 0.28,
+          shootAggression: 0.42,
+          dribbleRatio: 0.44,
+          decisionDelay: Math.max(6, Math.round(12 / tempoFactor)),
+          defLineCap: 0.45
         };
       }
       if (tacticLabel === "Defensivo") {
         return {
-          blockShift: -0.21 + sliderShift,
-          pressRange: 0.10 * pressFactor,
-          passSpeed: 0.022 * tempoFactor,
-          shootRange: 0.21,
-          shootAggression: 0.24,
+          blockShift: -0.20 + sliderShift,
+          pressRange: 0.11 * pressFactor,
+          passSpeed: 0.019 * tempoFactor,
+          shootRange: 0.20,
+          shootAggression: 0.18,
           dribbleRatio: 0.20,
-          decisionDelay: Math.max(5, Math.round(13 / tempoFactor)),
+          decisionDelay: Math.max(8, Math.round(15 / tempoFactor)),
           defLineCap: 0.22
         };
       }
       return {
         blockShift: 0.02 + sliderShift,
         pressRange: 0.20 * pressFactor,
-        passSpeed: 0.026 * tempoFactor,
-        shootRange: 0.27,
-        shootAggression: 0.42,
-        dribbleRatio: 0.34,
-        decisionDelay: Math.max(4, Math.round(11 / tempoFactor)),
+        passSpeed: 0.022 * tempoFactor,
+        shootRange: 0.24,
+        shootAggression: 0.28,
+        dribbleRatio: 0.33,
+        decisionDelay: Math.max(7, Math.round(13 / tempoFactor)),
         defLineCap: 0.34
       };
     };
@@ -252,7 +251,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
 
     if (carrier) {
       const dir = carrier.team === "home" ? 1 : -1;
-      ball.x = carrier.x + dir * 0.012;
+      ball.x = carrier.x + dir * 0.011;
       ball.y = carrier.y;
       ball.vx = 0;
       ball.vy = 0;
@@ -260,18 +259,18 @@ export function startLiveMatch(homeId, awayId, onFinish) {
     } else {
       ball.x += ball.vx;
       ball.y += ball.vy;
-      ball.vx *= ball.isShot ? 0.985 : 0.955;
-      ball.vy *= ball.isShot ? 0.985 : 0.955;
+      ball.vx *= ball.isShot ? 0.985 : 0.960;
+      ball.vy *= ball.isShot ? 0.985 : 0.960;
 
       if (ball.y < 0.04 || ball.y > 0.96) {
         ball.vy *= -0.65;
         ball.y = Math.max(0.04, Math.min(0.96, ball.y));
       }
 
-      const inGoalMouth = ball.y >= 0.38 && ball.y <= 0.62;
+      const inGoalMouth = ball.y >= 0.40 && ball.y <= 0.60;
 
       if (ball.x >= 0.985) {
-        if (inGoalMouth && ball.isShot) {
+        if (inGoalMouth && ball.isShot && gh < MAX_GOALS_PER_TEAM) {
           gh++;
           const scorer = ball.shooter;
           const fullName = scorer?.name || "Delantero";
@@ -286,19 +285,23 @@ export function startLiveMatch(homeId, awayId, onFinish) {
             colors: m.homeColors,
             minute: currentMin,
             scoreText: `${m.homeName} ${gh} - ${ga} ${m.awayName}`,
-            timer: 36,
-            maxTimer: 36,
+            timer: 30,
+            maxTimer: 30,
             goalSide: "right"
           };
           kickoffReset(ball, homeAgents, awayAgents, "away");
         } else {
+          if (ball.isShot && Math.random() < 0.35) {
+            addedEvents.push(`💨 ${currentMin}' - Remate desviado de ${ball.shooter?.name.split(" ").pop() || "atacante"}`);
+          }
           const awayGk = awayAgents[0];
           ball.x = awayGk.x; ball.y = awayGk.y;
           ball.ownerTeam = "away"; ball.ownerId = awayGk.id;
-          ball.isShot = false; ball.stealCooldown = 12;
+          ball.isShot = false; ball.stealCooldown = 20;
+          awayGk.decisionTimer = 14;
         }
       } else if (ball.x <= 0.015) {
-        if (inGoalMouth && ball.isShot) {
+        if (inGoalMouth && ball.isShot && ga < MAX_GOALS_PER_TEAM) {
           ga++;
           const scorer = ball.shooter;
           const fullName = scorer?.name || "Delantero";
@@ -313,16 +316,20 @@ export function startLiveMatch(homeId, awayId, onFinish) {
             colors: m.awayColors,
             minute: currentMin,
             scoreText: `${m.homeName} ${gh} - ${ga} ${m.awayName}`,
-            timer: 36,
-            maxTimer: 36,
+            timer: 30,
+            maxTimer: 30,
             goalSide: "left"
           };
           kickoffReset(ball, homeAgents, awayAgents, "home");
         } else {
+          if (ball.isShot && Math.random() < 0.35) {
+            addedEvents.push(`💨 ${currentMin}' - Remate desviado de ${ball.shooter?.name.split(" ").pop() || "atacante"}`);
+          }
           const homeGk = homeAgents[0];
           ball.x = homeGk.x; ball.y = homeGk.y;
           ball.ownerTeam = "home"; ball.ownerId = homeGk.id;
-          ball.isShot = false; ball.stealCooldown = 12;
+          ball.isShot = false; ball.stealCooldown = 20;
+          homeGk.decisionTimer = 14;
         }
       }
     }
@@ -332,6 +339,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
       const enemyAgents = isHome ? awayAgents : homeAgents;
       const shiftX = isHome ? profile.blockShift : -profile.blockShift;
       const teamHasBall = ball.ownerTeam === teamKey;
+      const carrierIsGK = carrier?.posType === "POR";
 
       let chaser = null;
       let bestDist = Infinity;
@@ -343,33 +351,61 @@ export function startLiveMatch(homeId, awayId, onFinish) {
       });
 
       agents.forEach(a => {
-        if (nextTick % 25 === 0) {
-          const drain = profile.blockShift > 0.12 ? 0.76 : profile.blockShift < -0.12 ? 0.42 : 0.58;
+        if (nextTick % 26 === 0) {
+          const drain = profile.blockShift > 0.12 ? 0.74 : profile.blockShift < -0.12 ? 0.42 : 0.56;
           a.stamina = Math.max(25, (a.stamina ?? 100) - drain);
         }
 
-        const fatigueMult = 0.78 + ((a.stamina ?? 100) / 100) * 0.22;
+        const fatigueMult = 0.80 + ((a.stamina ?? 100) / 100) * 0.20;
         const speed = a.speed * fatigueMult;
 
+        // LÓGICA DEL PORTERO: Ataja y despeja largo sin perderla con el delantero
         if (a.posType === "POR") {
           const homeGoalX = isHome ? 0.042 : 0.958;
-          const targetY = Math.max(0.39, Math.min(0.61, ball.y));
+          const targetY = Math.max(0.40, Math.min(0.60, ball.y));
           a.vx = (homeGoalX - a.x) * 0.16;
-          a.vy = (targetY - a.y) * (ball.isShot ? 0.24 : 0.14);
+          a.vy = (targetY - a.y) * (ball.isShot ? 0.26 : 0.14);
           a.x += a.vx;
           a.y += a.vy;
 
-          if (!carrier && Math.hypot(ball.x - a.x, ball.y - a.y) < 0.032) {
-            const saveChance = 0.52 + ((a.ovr - 75) * 0.015);
-            if (!ball.isShot || Math.random() < saveChance) {
-              if (ball.isShot && Math.random() < 0.45) {
+          // Si el portero tiene el balón en las manos, espera un instante y despeja largo al mediocampo
+          if (carrier && carrier.id === a.id && carrier.team === teamKey) {
+            a.decisionTimer = (a.decisionTimer || 0) - 1;
+            if (a.decisionTimer <= 0) {
+              const dirX = isHome ? 1 : -1;
+              const midfieldTargets = agents.filter(t => t.id !== a.id && (t.posType === "MED" || t.posType === "DEL"));
+              const pool = midfieldTargets.length > 0 ? midfieldTargets : agents.filter(t => t.id !== a.id);
+              const target = pool[Math.floor(Math.random() * pool.length)];
+
+              if (target) {
+                const kickX = isHome ? Math.max(0.38, target.x) : Math.min(0.62, target.x);
+                const angle = Math.atan2(target.y - a.y, kickX - a.x);
+                const clearSpeed = 0.032;
+
+                ball.ownerTeam = null;
+                ball.ownerId = null;
+                ball.isShot = false;
+                ball.vx = Math.cos(angle) * clearSpeed;
+                ball.vy = Math.sin(angle) * clearSpeed;
+                ball.stealCooldown = 8;
+              }
+            }
+            return;
+          }
+
+          // Atajada cuando viene el balón hacia su arco
+          if (!carrier && Math.hypot(ball.x - a.x, ball.y - a.y) < 0.038) {
+            const rivalGoals = isHome ? ga : gh;
+            const saveChance = rivalGoals >= MAX_GOALS_PER_TEAM ? 1.0 : (0.72 + ((a.ovr - 75) * 0.011));
+            if (!ball.isShot || Math.random() < Math.min(0.90, saveChance)) {
+              if (ball.isShot && Math.random() < 0.40) {
                 addedEvents.push(`🧤 ${currentMin}' - ¡Gran parada de ${a.name.split(" ").pop()}!`);
               }
               ball.ownerTeam = teamKey;
               ball.ownerId = a.id;
               ball.isShot = false;
-              ball.stealCooldown = 14;
-              a.decisionTimer = profile.decisionDelay;
+              ball.stealCooldown = 25;
+              a.decisionTimer = 14;
             }
           }
           return;
@@ -382,8 +418,8 @@ export function startLiveMatch(homeId, awayId, onFinish) {
 
           const defenderHold = (a.posType === "DEF" && profile.blockShift < -0.08 && (isHome ? a.x > 0.36 : a.x < 0.64));
 
-          const centerPull = (0.5 - a.y) * 0.35;
-          a.vx = defenderHold ? 0 : dirX * speed * 0.95;
+          const centerPull = (0.5 - a.y) * 0.32;
+          a.vx = defenderHold ? 0 : dirX * speed * 0.94;
           a.vy = centerPull * speed;
           a.x = Math.max(0.05, Math.min(0.95, a.x + a.vx));
           a.y = Math.max(0.07, Math.min(0.93, a.y + a.vy));
@@ -394,11 +430,12 @@ export function startLiveMatch(homeId, awayId, onFinish) {
           const nearestEnemyDist = enemyAgents.reduce((min, e) => Math.min(min, Math.hypot(e.x - a.x, e.y - a.y)), 99);
           const underPressure = nearestEnemyDist < 0.085;
 
-          if (distGoal <= profile.shootRange && Math.abs(a.y - 0.5) < 0.30) {
-            if (Math.random() < profile.shootAggression || distGoal < 0.17) {
-              const targetY = 0.5 + (Math.random() - 0.5) * 0.21;
+          if (distGoal <= profile.shootRange && Math.abs(a.y - 0.5) < 0.27) {
+            if (Math.random() < profile.shootAggression || distGoal < 0.15) {
+              const accuracySpread = Math.max(0.16, 0.30 - ((a.ovr - 70) * 0.005));
+              const targetY = 0.5 + (Math.random() - 0.5) * accuracySpread;
               const angle = Math.atan2(targetY - a.y, goalX - a.x);
-              const shotSpeed = 0.044 + ((a.ovr - 70) * 0.0006);
+              const shotSpeed = 0.037 + ((a.ovr - 70) * 0.0005);
 
               ball.ownerTeam = null;
               ball.ownerId = null;
@@ -415,22 +452,23 @@ export function startLiveMatch(homeId, awayId, onFinish) {
           }
 
           if (defenderHold || underPressure || Math.random() > profile.dribbleRatio) {
-            const maxPassDist = profile.blockShift < -0.08 ? 0.62 : 0.42;
+            const maxPassDist = profile.blockShift < -0.08 ? 0.58 : 0.40;
             const forwardOptions = agents.filter(t =>
               t.id !== a.id &&
               t.posType !== "POR" &&
-              (isHome ? t.x > a.x + 0.03 : t.x < a.x - 0.03) &&
+              (isHome ? t.x > a.x + 0.02 : t.x < a.x - 0.02) &&
               Math.hypot(t.x - a.x, t.y - a.y) < maxPassDist
             );
             const safeOptions = agents.filter(t =>
               t.id !== a.id &&
-              Math.hypot(t.x - a.x, t.y - a.y) < 0.35
+              t.posType !== "POR" &&
+              Math.hypot(t.x - a.x, t.y - a.y) < 0.34
             );
 
             const candidates = forwardOptions.length > 0 ? forwardOptions : safeOptions;
             if (candidates.length > 0) {
               const target = candidates[Math.floor(Math.random() * candidates.length)];
-              const leadX = target.x + dirX * 0.025;
+              const leadX = target.x + dirX * 0.022;
               const angle = Math.atan2(target.y - a.y, leadX - a.x);
 
               ball.ownerTeam = null;
@@ -450,12 +488,12 @@ export function startLiveMatch(homeId, awayId, onFinish) {
         const distBall = Math.hypot(ball.x - a.x, ball.y - a.y);
 
         if (!carrier && a === chaser) {
-          a.vx = ((ball.x - a.x) / (distBall || 1)) * speed * 1.15;
-          a.vy = ((ball.y - a.y) / (distBall || 1)) * speed * 1.15;
+          a.vx = ((ball.x - a.x) / (distBall || 1)) * speed * 1.14;
+          a.vy = ((ball.y - a.y) / (distBall || 1)) * speed * 1.14;
           a.x += a.vx;
           a.y += a.vy;
 
-          if (Math.hypot(ball.x - a.x, ball.y - a.y) < 0.026 && ball.stealCooldown === 0) {
+          if (Math.hypot(ball.x - a.x, ball.y - a.y) < 0.025 && ball.stealCooldown === 0) {
             ball.ownerTeam = teamKey;
             ball.ownerId = a.id;
             ball.isShot = false;
@@ -464,18 +502,19 @@ export function startLiveMatch(homeId, awayId, onFinish) {
           return;
         }
 
-        if (carrier && !teamHasBall && a === chaser && distBall < profile.pressRange) {
-          a.vx = ((carrier.x - a.x) / (distBall || 1)) * speed * 1.14;
-          a.vy = ((carrier.y - a.y) / (distBall || 1)) * speed * 1.14;
+        // PROHIBIDO ENTRARLE AL PORTERO: Solo presiona si el portador NO es el arquero
+        if (carrier && !carrierIsGK && !teamHasBall && a === chaser && distBall < profile.pressRange) {
+          a.vx = ((carrier.x - a.x) / (distBall || 1)) * speed * 1.12;
+          a.vy = ((carrier.y - a.y) / (distBall || 1)) * speed * 1.12;
           a.x += a.vx;
           a.y += a.vy;
 
           if (Math.hypot(carrier.x - a.x, carrier.y - a.y) < 0.024 && ball.stealCooldown === 0) {
-            const tackleProb = 0.22 + ((a.ovr - carrier.ovr) * 0.012);
-            if (Math.random() < Math.max(0.08, Math.min(0.45, tackleProb))) {
+            const tackleProb = 0.24 + ((a.ovr - carrier.ovr) * 0.012);
+            if (Math.random() < Math.max(0.10, Math.min(0.46, tackleProb))) {
               ball.ownerTeam = teamKey;
               ball.ownerId = a.id;
-              ball.stealCooldown = 12;
+              ball.stealCooldown = 13;
               a.decisionTimer = profile.decisionDelay;
             } else {
               ball.stealCooldown = 8;
@@ -485,12 +524,12 @@ export function startLiveMatch(homeId, awayId, onFinish) {
         }
 
         const ballShiftX = (ball.x - 0.5) * 0.12;
-        const ballShiftY = (ball.y - 0.5) * 0.15;
+        const ballShiftY = (ball.y - 0.5) * 0.14;
         const supportAdvance = (teamHasBall && (a.posType === "DEL" || a.posType === "MED"))
-          ? (isHome ? 0.06 : -0.06)
+          ? (isHome ? 0.055 : -0.055)
           : 0;
-        const microMoveX = Math.sin(nextTick * 0.04 + a.noiseOffset) * 0.012;
-        const microMoveY = Math.cos(nextTick * 0.04 + a.noiseOffset) * 0.012;
+        const microMoveX = Math.sin(nextTick * 0.035 + a.noiseOffset) * 0.011;
+        const microMoveY = Math.cos(nextTick * 0.035 + a.noiseOffset) * 0.011;
 
         let rawTargetX = a.baseX + shiftX + ballShiftX + supportAdvance + microMoveX;
 
@@ -499,11 +538,17 @@ export function startLiveMatch(homeId, awayId, onFinish) {
           else rawTargetX = Math.max(1 - profile.defLineCap, rawTargetX);
         }
 
+        // Si el portero rival tiene el balón, los atacantes retroceden fuera del área
+        if (carrierIsGK && !teamHasBall) {
+          if (isHome) rawTargetX = Math.min(0.76, rawTargetX);
+          else rawTargetX = Math.max(0.24, rawTargetX);
+        }
+
         const targetX = Math.max(0.08, Math.min(0.92, rawTargetX));
         const targetY = Math.max(0.08, Math.min(0.92, a.baseY + ballShiftY + microMoveY));
 
-        a.vx = (targetX - a.x) * 0.12;
-        a.vy = (targetY - a.y) * 0.12;
+        a.vx = (targetX - a.x) * 0.105;
+        a.vy = (targetY - a.y) * 0.105;
         a.x += a.vx;
         a.y += a.vy;
       });
@@ -518,7 +563,6 @@ export function startLiveMatch(homeId, awayId, onFinish) {
       clearInterval(matchInterval);
     }
 
-    // Actualización incremental sobre draft.liveMatch: NUNCA sobrescribe la táctica ni la pausa del usuario
     store.update(["liveMatch"], draft => {
       const lm = draft.liveMatch;
       if (!lm) return;
@@ -542,7 +586,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
     });
 
     if (isFinished && onFinish) onFinish(gh, ga);
-  }, 50);
+  }, 60);
 }
 
 function kickoffReset(ball, homeAgents, awayAgents, kickoffTeam) {
@@ -553,6 +597,7 @@ function kickoffReset(ball, homeAgents, awayAgents, kickoffTeam) {
   const taker = takers[9] || takers[6] || takers[1];
   taker.x = 0.5;
   taker.y = 0.5;
+  taker.decisionTimer = 12;
 
   ball.x = 0.5;
   ball.y = 0.5;
@@ -588,7 +633,7 @@ export function makeLiveSubstitution(outAgentIndex, inPlayerId) {
     ovr: effOvr,
     outOfPosition: outOfPos,
     stamina: inPlayer.stamina ?? 100,
-    speed: (0.0068 + Math.random() * 0.0014) * (0.88 + ((effOvr - 70) * 0.011))
+    speed: (0.0056 + Math.random() * 0.0010) * (0.90 + ((effOvr - 75) * 0.010))
   };
 
   agents[outAgentIndex] = newAgent;
