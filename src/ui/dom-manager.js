@@ -78,14 +78,14 @@ import {
   applyPostMatchMedicalAndCards,
   advanceMedicalRecovery
 } from "../engine/medical.js";
-import { registerPostMatchPressAndRecords } from "../engine/press-locker-records.js";
 import { LEAGUES_CATALOG, buildWorldDatabase } from "../data/world-database.js";
 import { renderEnhancedPitch } from "./pitch-renderer.js";
 import { renderPlayerProfileModal } from "./player-modal.js";
-import { renderTacticsExtrasUI } from "./tactics-extras.js";
-import { renderWorldExpansionUI } from "./world-expansion-ui.js";
 import { showToast } from "./toast.js";
 import { renderClubBadge } from "./badges.js";
+import { renderTacticsExtrasUI } from "./tactics-extras.js";
+import { renderWorldExpansionUI } from "./world-expansion-ui.js";
+import { checkAndTriggerLiveGoalBanner, playAnimatedQuickSim } from "./match-cinematics.js";
 
 let lastLiveLayoutKey = "";
 let selectedPreviewLeague = "esp_1";
@@ -425,6 +425,7 @@ function render() {
 function updateLiveMatchDynamicParts(state) {
   const m = state.liveMatch;
   if (!m) return;
+  checkAndTriggerLiveGoalBanner(m, state.clubs);
   const isUserHome = m.homeId === state.userClubId;
 
   const scoreEl = document.getElementById("live-score-text");
@@ -587,8 +588,8 @@ function renderHomeTab(state) {
           <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--panel-border); font-size: 12px;">
             <div style="color: var(--text-muted); margin-bottom: 6px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;">Balance Última Jornada</div>
             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; background: rgba(6,9,19,0.65); padding: 9px 11px; border-radius: 10px;">
-              <div>Ingresos<br><b style="color: var(--success); font-size: 13px;">+${(fin.ticketRevenue / 1e6).toFixed(2)}M</b></div>
-              <div>Gastos<br><b style="color: var(--danger); font-size: 13px;">-${(fin.weeklyWages / 1e6).toFixed(2)}M</b></div>
+              <div>Taquilla<br><b style="color: var(--success); font-size: 13px;">+${(fin.ticketRevenue / 1e6).toFixed(2)}M</b></div>
+              <div>Salarios<br><b style="color: var(--danger); font-size: 13px;">-${(fin.weeklyWages / 1e6).toFixed(2)}M</b></div>
               <div>Neto<br><b style="color: ${fin.netBalance >= 0 ? 'var(--success)' : 'var(--danger)'}; font-size: 13px;">${fin.netBalance >= 0 ? '+' : ''}${(fin.netBalance / 1e6).toFixed(2)}M</b></div>
             </div>
           </div>
@@ -751,7 +752,7 @@ function renderSquadTab(state) {
                   </td>
                   <td>
                     <span class="btn-inspect-player" data-pid="${p.id}" style="cursor:pointer; font-weight:800; text-decoration:underline; text-decoration-color:rgba(255,255,255,0.28); text-underline-offset:3px;">${p.name}</span>
-                    ${p.isWorldIcon ? `<span style="background:rgba(234,179,8,0.22); color:#facc15; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">👑 ÍCONO</span>` : p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">★ LEYENDA</span>` : p.isRegen ? `<span style="background:rgba(16,185,129,0.22); color:#34d399; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">REGEN</span>` : p.isYouth ? `<span style="background:rgba(59,130,246,0.25); color:#60a5fa; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CANTERA</span>` : ""}
+                    ${p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">★ LEYENDA</span>` : p.isRegen ? `<span style="background:rgba(16,185,129,0.22); color:#34d399; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">REGEN</span>` : p.isYouth ? `<span style="background:rgba(59,130,246,0.25); color:#60a5fa; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CANTERA</span>` : ""}
                     ${p.isLoaned ? `<span style="background:rgba(168,85,247,0.25); color:#d8b4fe; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CEDIDO</span>` : ""}
                     <small style="color: var(--text-muted);">(${p.age}a)</small>
                     ${(p.yellowCardsSeason || 0) > 0 ? `<span style="margin-left:4px; font-size:10px; color:#facc15; font-weight:700;">🟨 ${p.yellowCardsSeason}/5</span>` : ""}
@@ -984,7 +985,7 @@ function renderTacticsTab(state) {
           <div style="position: absolute; left: 0; top: 24%; width: 13%; height: 52%; border: 2px solid rgba(255,255,255,0.4); border-left: none;"></div>
           <div style="position: absolute; right: 0; top: 24%; width: 13%; height: 52%; border: 2px solid rgba(255,255,255,0.4); border-right: none;"></div>
 
-          ${assigned.map(({ slot, player, outOfPosition, idx }) => {
+          ${assigned.map(({ slot, player, outOfPosition }, idx) => {
             const isGK = idx === 0;
             const px = isGK ? slot.x * 140 : Math.max(13, Math.min(91, slot.x * 140 + shiftPreview));
             const label = player ? player.name.split(" ").pop() : slot.pos;
@@ -1065,14 +1066,13 @@ function renderTransfersTab(state) {
     if (ageFilter === "VET" && p.age < 29) return false;
     if (minOvrFilter > 0 && p.ovr < minOvrFilter) return false;
     if (queryLower) {
-      const cName = p.clubId === "free_agent" ? "agente libre leyenda" : (state.clubs[p.clubId]?.name || "").toLowerCase();
-      const natName = (p.nationality || "").toLowerCase();
-      if (!p.name.toLowerCase().includes(queryLower) && !cName.includes(queryLower) && !natName.includes(queryLower)) return false;
+      const cName = p.clubId === "free_agent" ? "agente libre" : (state.clubs[p.clubId]?.name || "").toLowerCase();
+      if (!p.name.toLowerCase().includes(queryLower) && !cName.includes(queryLower)) return false;
     }
     return true;
   });
 
-  const marketPlayers = filtered.sort((a, b) => b.ovr - a.ovr).slice(0, 45);
+  const marketPlayers = filtered.sort((a, b) => b.ovr - a.ovr).slice(0, 35);
   const humanManagers = state.mpManagers || [];
 
   return `
@@ -1084,7 +1084,7 @@ function renderTransfersTab(state) {
         </div>
         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
           <button class="btn-filter-league fm-btn ${leagueFilter === 'ALL' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="ALL" style="padding: 5px 9px; font-size: 11px;">Todas</button>
-          <button class="btn-filter-league fm-btn ${leagueFilter === 'FREE' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="FREE" style="padding: 5px 9px; font-size: 11px; border-color:rgba(16,185,129,0.5); color:#34d399;">🆓 Libres / Leyendas</button>
+          <button class="btn-filter-league fm-btn ${leagueFilter === 'FREE' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="FREE" style="padding: 5px 9px; font-size: 11px; border-color:rgba(16,185,129,0.5); color:#34d399;">🆓 Libres (OM)</button>
           ${LEAGUES_CATALOG.map(l => `
             <button class="btn-filter-league fm-btn ${leagueFilter === l.id ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="${l.id}" style="padding: 5px 9px; font-size: 11px;">
               ${l.flag} ${l.country}
@@ -1095,8 +1095,8 @@ function renderTransfersTab(state) {
 
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-bottom: 14px; background: rgba(6,9,19,0.68); padding: 12px; border-radius: 12px; border: 1px solid var(--panel-border);">
         <div>
-          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">🔍 Buscar Jugador, Club o País</label>
-          <input id="market-search-input" type="text" value="${searchQuery.replace(/"/g, "&quot;")}" placeholder="Ej: Pelé, Maradona, Leyton, Colombia..." style="width:100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
+          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">🔍 Buscar Jugador o Club</label>
+          <input id="market-search-input" type="text" value="${searchQuery.replace(/"/g, "&quot;")}" placeholder="Ej: Leyton, Gutierrez, Rave, Galvis..." style="width:100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
         </div>
         <div>
           <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">⏳ Rango de Edad</label>
@@ -1172,7 +1172,7 @@ function renderTransfersTab(state) {
                 <tr>
                   <td>
                     <span class="btn-inspect-player" data-pid="${p.id}" style="cursor:pointer; font-weight:800; text-decoration:underline; text-decoration-color:rgba(255,255,255,0.28); text-underline-offset:3px;">${p.name}</span>
-                    ${p.isWorldIcon ? `<span style="background:rgba(234,179,8,0.22); color:#facc15; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">👑 ÍCONO</span>` : p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">★ LEYENDA</span>` : p.isRegen ? `<span style="background:rgba(16,185,129,0.22); color:#34d399; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">REGEN</span>` : ""}
+                    ${p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">★ LEYENDA</span>` : p.isRegen ? `<span style="background:rgba(16,185,129,0.22); color:#34d399; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">REGEN</span>` : ""}
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px; display:flex; gap:8px;">
                       <span>RIT <b style="color:#e2e8f0;">${attrs.RIT}</b></span>
                       <span>TIR <b style="color:#e2e8f0;">${attrs.TIR}</b></span>
@@ -1182,7 +1182,7 @@ function renderTransfersTab(state) {
                   </td>
                   <td style="color: var(--text-muted);">
                     ${isFree
-                      ? `<span style="background:rgba(16,185,129,0.2); color:#34d399; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:800;">${p.isWorldIcon ? "👑 Leyenda Libre" : "🆓 Agente Libre"}</span>`
+                      ? `<span style="background:rgba(16,185,129,0.2); color:#34d399; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:800;">🆓 Agente Libre</span>`
                       : `${renderClubBadge(c, 20)} <b>${c?.name || "-"}</b> ${friendOwner ? `<span style="background:rgba(249,115,22,0.22); color:#fdba74; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">👤 ${friendOwner.name}</span>` : `<small>(${c?.flag || ""})</small>`}`}
                   </td>
                   <td><span class="fm-badge-pos">${p.pos}</span></td>
@@ -1192,7 +1192,7 @@ function renderTransfersTab(state) {
                   <td>
                     ${isFree ? `
                       <button class="btn-sign-free-agent fm-btn ${canBuy ? 'fm-btn-primary' : ''}" data-pid="${p.id}" ${!canBuy ? 'disabled' : ''} style="padding: 5px 11px; font-size: 11px; ${!canBuy ? 'background:#334155; opacity:0.45; cursor:not-allowed;' : ''}">
-                        ${p.isWorldIcon ? "👑 Fichar Leyenda" : "🆓 Fichar Libre"}
+                        🆓 Fichar Libre
                       </button>
                     ` : `
                       <div style="display:flex; flex-wrap:wrap; gap:5px;">
@@ -1299,8 +1299,24 @@ function renderCompetitionsTab(state) {
       </div>
     ` : ""}
 
-    ${renderCupCard(state, "cont_1", "🌍")}
-    ${renderCupCard(state, "cup_1", "🏆")}
+    ${renderCupCard(state, "cont_1", "🏆")}
+    ${renderCupCard(state, "cont_2", "🌎")}
+    ${state.competitions?.intercontinental ? `
+      <div class="fm-card" style="background: linear-gradient(135deg, rgba(234,179,8,0.18), rgba(15,23,42,0.95)); border: 1px solid rgba(250,204,21,0.45);">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+          <h3 style="margin:0; color:#fde047;">🌐 Copa Intercontinental FIFA (Campeón Europa vs Campeón América)</h3>
+          <span style="font-size:13px; font-weight:900; color:#34d399;">
+            👑 Campeón Mundial: ${state.clubs[state.competitions.intercontinental.winnerId]?.name || "-"}
+          </span>
+        </div>
+        <div style="margin-top:10px; font-size:15px; font-weight:800; text-align:center; padding:10px; background:rgba(6,9,19,0.7); border-radius:10px;">
+          ${state.clubs[state.competitions.intercontinental.homeId]?.flag || ""} ${state.clubs[state.competitions.intercontinental.homeId]?.name || ""}
+          <span style="color:#fde047; margin:0 12px;">${state.competitions.intercontinental.gh} - ${state.competitions.intercontinental.ga}</span>
+          ${state.clubs[state.competitions.intercontinental.awayId]?.name || ""} ${state.clubs[state.competitions.intercontinental.awayId]?.flag || ""}
+        </div>
+      </div>
+    ` : ""}
+    ${renderCupCard(state, "cup_1", "🥇")}
 
     <div style="display: flex; flex-wrap:wrap; gap:8px; margin-bottom:14px;">
       <button class="btn-select-standings fm-btn ${selectedStandingsView === 'league_1' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-lid="league_1" style="font-size:12px;">
@@ -1649,7 +1665,7 @@ function renderClubSelection(state) {
           <div style="display:flex; gap:8px; margin-bottom:16px;">
             <input id="input-join-room-code" type="text" maxlength="8" value="${joinRoomCodeInput.replace(/"/g, "&quot;")}" placeholder="CÓDIGO (EJ. WFM82K)" style="flex:1; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:10px; padding:10px 14px; font-size:15px; font-weight:900; letter-spacing:0.12em; text-transform:uppercase;">
             <button id="btn-search-online-room" class="fm-btn fm-btn-primary" style="padding:10px 18px; font-size:13px;">
-              Buscar Sala
+              🔍 Buscar Sala
             </button>
           </div>
 
@@ -1760,6 +1776,8 @@ function handleSeasonEndHooks(seasonNum) {
 }
 
 function runQuickSimulationFlow() {
+  const stBefore = store.get();
+  const nextEv = getNextUserEvent(stBefore);
   const res = simulateQuickMatch();
   if (!res.ok) {
     showToast(res.msg, "warning");
@@ -1769,17 +1787,26 @@ function runQuickSimulationFlow() {
     return;
   }
 
+  const stAfter = store.get();
   const won = res.outcome === "success";
   grantManagerXp(won ? 180 : res.outcome === "info" ? 90 : 40, "Partido jugado");
   evaluateObjectivesProgress({ wonMatch: won });
   syncCurrentManagerSnapshot();
   syncOnlineIfActive();
 
-  showToast(res.msg, res.outcome || "info", 4500);
-  if (res.seasonFinished) {
-    const seasonNum = store.get().season || 1;
-    setTimeout(() => handleSeasonEndHooks(seasonNum), 350);
-  }
+  const scoreMatch = res.msg.match(/(\d+)\s*-\s*(\d+)/);
+  const gh = scoreMatch ? Number(scoreMatch[1]) : (won ? 2 : 1);
+  const ga = scoreMatch ? Number(scoreMatch[2]) : (won ? 1 : 2);
+  const homeClub = nextEv?.match ? stAfter.clubs[nextEv.match[0]] : stAfter.clubs[stAfter.userClubId];
+  const awayClub = nextEv?.match ? stAfter.clubs[nextEv.match[1]] : { name: "Rival", ovr: 76 };
+
+  playAnimatedQuickSim(homeClub, awayClub, gh, ga, () => {
+    showToast(res.msg, res.outcome || "info", 4500);
+    if (res.seasonFinished) {
+      const seasonNum = store.get().season || 1;
+      setTimeout(() => handleSeasonEndHooks(seasonNum), 350);
+    }
+  });
 }
 
 function bindEvents(state) {
@@ -2416,7 +2443,6 @@ document.addEventListener("click", async e => {
       completeRoundWithUserResult(m.homeId, m.awayId, m.gh, m.ga, compId);
       recordMatchInCareer(m.gh, m.ga);
       processRoundProgression(wasUserHome);
-      registerPostMatchPressAndRecords(m.homeName, m.awayName, m.gh, m.ga, wasUserHome);
       triggerPostMatchEvent();
       maybeGenerateIncomingOffer();
       grantManagerXp(won ? 240 : userGoals === rivalGoals ? 110 : 50, "Partido en vivo");

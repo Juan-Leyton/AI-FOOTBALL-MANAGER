@@ -1,229 +1,277 @@
-let activeBanner = null;
-let lastTrackedEvent = "";
+// Renderizador 2.5D Broadcast realista para el partido en vivo
 
-function isLightColor(hex) {
-  if (!hex || typeof hex !== "string") return false;
-  const clean = hex.replace("#", "");
-  if (clean.length !== 6) return false;
-  const r = parseInt(clean.substring(0, 2), 16);
-  const g = parseInt(clean.substring(2, 4), 16);
-  const b = parseInt(clean.substring(4, 6), 16);
-  return (r * 299 + g * 587 + b * 114) / 1000 > 165;
-}
+const ballTrail = [];
+let lastGoalFlash = 0;
+let lastScoreHash = "";
 
-function detectEventBanner(m) {
-  if (!m?.events?.length) return;
-  const latest = m.events[0];
-  if (!latest || latest === lastTrackedEvent) return;
-  lastTrackedEvent = latest;
-
-  if (latest.includes("⚽") || latest.toUpperCase().includes("GOL")) {
-    activeBanner = {
-      text: latest,
-      bg: "rgba(16, 185, 129, 0.94)",
-      border: "#a7f3d0",
-      expiresAt: Date.now() + 2600
-    };
-  } else if (latest.includes("🟥")) {
-    activeBanner = {
-      text: latest,
-      bg: "rgba(220, 38, 38, 0.94)",
-      border: "#fecaca",
-      expiresAt: Date.now() + 2600
-    };
-  }
-}
-
-export function renderEnhancedPitch(canvas, m, clubs = {}) {
-  if (!canvas || !m) return;
+export function renderEnhancedPitch(canvas, match, clubs) {
+  if (!canvas || !match) return;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
-  const w = canvas.width;
-  const h = canvas.height;
-  const homeClub = clubs[m.homeId] || { colors: ["#2563eb", "#ffffff"] };
-  const awayClub = clubs[m.awayId] || { colors: ["#dc2626", "#ffffff"] };
+  const W = canvas.width;
+  const H = canvas.height;
+  const homeClub = clubs?.[match.homeId] || { colors: ["#2563eb", "#ffffff"], name: "Local" };
+  const awayClub = clubs?.[match.awayId] || { colors: ["#ef4444", "#ffffff"], name: "Visitante" };
 
-  detectEventBanner(m);
+  // Detectar gol reciente para efecto de vibración de red y destello
+  const scoreHash = `${match.gh}-${match.ga}`;
+  if (lastScoreHash && scoreHash !== lastScoreHash) {
+    lastGoalFlash = 28;
+  }
+  lastScoreHash = scoreHash;
+  if (lastGoalFlash > 0) lastGoalFlash--;
 
-  // 1. Césped en franjas verticales con iluminación tipo estadio
-  const stripes = 12;
-  const stripeW = w / stripes;
+  ctx.clearRect(0, 0, W, H);
+
+  // 1. Césped realista con franjas de corte alternas e iluminación de focos
+  const stripes = 14;
+  const stripeW = W / stripes;
   for (let i = 0; i < stripes; i++) {
-    ctx.fillStyle = i % 2 === 0 ? "#14532d" : "#166534";
-    ctx.fillRect(i * stripeW, 0, stripeW + 1, h);
+    ctx.fillStyle = i % 2 === 0 ? "#166534" : "#15803d";
+    ctx.fillRect(i * stripeW, 0, stripeW + 1, H);
   }
 
-  const grad = ctx.createRadialGradient(w / 2, h / 2, 40, w / 2, h / 2, w * 0.62);
-  grad.addColorStop(0, "rgba(255,255,255,0.06)");
-  grad.addColorStop(1, "rgba(0,0,0,0.42)");
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, w, h);
+  // Viñeta de iluminación de estadio nocturno
+  const lightGrad = ctx.createRadialGradient(W * 0.5, H * 0.5, W * 0.12, W * 0.5, H * 0.5, W * 0.65);
+  lightGrad.addColorStop(0, "rgba(255, 255, 255, 0.08)");
+  lightGrad.addColorStop(0.7, "rgba(0, 0, 0, 0.05)");
+  lightGrad.addColorStop(1, "rgba(2, 6, 23, 0.45)");
+  ctx.fillStyle = lightGrad;
+  ctx.fillRect(0, 0, W, H);
 
   // 2. Líneas reglamentarias del campo
-  const pad = 18;
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.58)";
+  const padX = 28;
+  const padY = 22;
+  const fieldW = W - padX * 2;
+  const fieldH = H - padY * 2;
+
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.78)";
   ctx.lineWidth = 2;
 
-  ctx.strokeRect(pad, pad, w - pad * 2, h - pad * 2);
+  // Perímetro
+  ctx.strokeRect(padX, padY, fieldW, fieldH);
 
   // Línea de medio campo y círculo central
   ctx.beginPath();
-  ctx.moveTo(w / 2, pad);
-  ctx.lineTo(w / 2, h - pad);
+  ctx.moveTo(W / 2, padY);
+  ctx.lineTo(W / 2, H - padY);
   ctx.stroke();
 
   ctx.beginPath();
-  ctx.arc(w / 2, h / 2, 46, 0, Math.PI * 2);
+  ctx.arc(W / 2, H / 2, 46, 0, Math.PI * 2);
   ctx.stroke();
 
-  ctx.fillStyle = "rgba(255,255,255,0.7)";
+  ctx.fillStyle = "#ffffff";
   ctx.beginPath();
-  ctx.arc(w / 2, h / 2, 3, 0, Math.PI * 2);
+  ctx.arc(W / 2, H / 2, 3, 0, Math.PI * 2);
   ctx.fill();
 
   // Áreas grandes y chicas
-  const boxW = 92;
-  const boxH = 190;
-  const smallW = 34;
-  const smallH = 92;
+  const penW = 86;
+  const penH = 196;
+  const sixW = 30;
+  const sixH = 96;
 
-  ctx.strokeRect(pad, (h - boxH) / 2, boxW, boxH);
-  ctx.strokeRect(w - pad - boxW, (h - boxH) / 2, boxW, boxH);
-  ctx.strokeRect(pad, (h - smallH) / 2, smallW, smallH);
-  ctx.strokeRect(w - pad - smallW, (h - smallH) / 2, smallW, smallH);
-
-  // Porterías
-  ctx.fillStyle = "rgba(255,255,255,0.25)";
-  ctx.fillRect(pad - 6, h / 2 - 26, 6, 52);
-  ctx.fillRect(w - pad, h / 2 - 26, 6, 52);
-
-  // 3. Coordenadas del balón
-  const bx = (m.ball?.x ?? 0.5) * w;
-  const by = (m.ball?.y ?? 0.5) * h;
-
-  // 4. Dibujar futbolistas con dorsales, aura del balón y barra de fatiga
-  const drawTeam = (agents, club, isHome) => {
-    const primary = club.colors?.[0] || (isHome ? "#2563eb" : "#dc2626");
-    const secondary = club.colors?.[1] || "#ffffff";
-    const textCol = isLightColor(primary) ? "#090d16" : "#ffffff";
-
-    (agents || []).forEach((agent, idx) => {
-      if (agent.expelled) return;
-
-      const px = (agent.x ?? 0.5) * w;
-      const py = (agent.y ?? 0.5) * h;
-      const distBall = Math.hypot(px - bx, py - by);
-      const hasBall = distBall < 18;
-      const isGK = idx === 0 || agent.posType === "POR";
-      const kitFill = isGK ? (isHome ? "#facc15" : "#10b981") : primary;
-      const kitStroke = isGK ? "#090d16" : secondary;
-      const numFill = isGK ? "#090d16" : textCol;
-      const dorsal = agent.number || (idx + 1);
-
-      // Halo luminoso si conduce el balón
-      if (hasBall) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(px, py, 19, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(250, 204, 21, 0.28)";
-        ctx.fill();
-        ctx.lineWidth = 1.5;
-        ctx.strokeStyle = "#fde047";
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      // Sombra bajo el jugador
-      ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
-      ctx.beginPath();
-      ctx.ellipse(px, py + 11, 10, 4, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Ficha circular estilo camiseta
-      ctx.beginPath();
-      ctx.arc(px, py, 12.5, 0, Math.PI * 2);
-      ctx.fillStyle = kitFill;
-      ctx.fill();
-      ctx.lineWidth = 2.2;
-      ctx.strokeStyle = kitStroke;
-      ctx.stroke();
-
-      // Dorsal centrado
-      ctx.fillStyle = numFill;
-      ctx.font = "900 10.5px system-ui, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(String(dorsal), px, py + 0.5);
-
-      // Etiqueta de apellido
-      const shortName = (agent.name || "").split(" ").pop();
-      if (shortName) {
-        ctx.font = "700 9.5px system-ui, sans-serif";
-        ctx.fillStyle = "rgba(6, 9, 19, 0.78)";
-        const tw = ctx.measureText(shortName).width + 8;
-        ctx.fillRect(px - tw / 2, py + 14, tw, 12);
-        ctx.fillStyle = "#f8fafc";
-        ctx.fillText(shortName, px, py + 20);
-      }
-
-      // Barra de fatiga si stamina < 55%
-      const stam = agent.stamina ?? 100;
-      if (stam < 55) {
-        const barW = 24;
-        const pct = Math.max(0.08, stam / 100);
-        ctx.fillStyle = "rgba(0,0,0,0.75)";
-        ctx.fillRect(px - barW / 2, py - 19, barW, 4);
-        ctx.fillStyle = stam < 38 ? "#ef4444" : "#f59e0b";
-        ctx.fillRect(px - barW / 2, py - 19, barW * pct, 4);
-      }
-
-      // Indicador de tarjeta amarilla
-      if ((agent.yellowCards || 0) > 0) {
-        ctx.fillStyle = "#facc15";
-        ctx.fillRect(px + 9, py - 13, 5, 7);
-      }
-    });
-  };
-
-  drawTeam(m.homeAgents, homeClub, true);
-  drawTeam(m.awayAgents, awayClub, false);
-
-  // 5. Balón con sombra y brillo
-  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  // Izquierda
+  ctx.strokeRect(padX, (H - penH) / 2, penW, penH);
+  ctx.strokeRect(padX, (H - sixH) / 2, sixW, sixH);
   ctx.beginPath();
-  ctx.ellipse(bx + 2, by + 5, 6, 3, 0, 0, Math.PI * 2);
+  ctx.arc(padX + 62, H / 2, 2.5, 0, Math.PI * 2);
   ctx.fill();
-
   ctx.beginPath();
-  ctx.arc(bx, by, 5.5, 0, Math.PI * 2);
-  ctx.fillStyle = "#ffffff";
-  ctx.fill();
-  ctx.lineWidth = 1.5;
-  ctx.strokeStyle = "#090d16";
+  ctx.arc(padX + 62, H / 2, 36, -0.92, 0.92);
   ctx.stroke();
 
-  // 6. Banner televisivo animado de Gol o Tarjeta Roja
-  if (activeBanner && Date.now() < activeBanner.expiresAt) {
-    ctx.save();
-    const bw = Math.min(w - 60, 520);
-    const bh = 36;
-    const rx = (w - bw) / 2;
-    const ry = 26;
+  // Derecha
+  ctx.strokeRect(W - padX - penW, (H - penH) / 2, penW, penH);
+  ctx.strokeRect(W - padX - sixW, (H - sixH) / 2, sixW, sixH);
+  ctx.beginPath();
+  ctx.arc(W - padX - 62, H / 2, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(W - padX - 62, H / 2, 36, Math.PI - 0.92, Math.PI + 0.92);
+  ctx.stroke();
 
-    ctx.fillStyle = activeBanner.bg;
+  // 3. Porterías 2.5D con redes
+  drawGoalNet(ctx, padX - 14, H / 2 - 34, 14, 68, true, lastGoalFlash > 0 && match.ball?.x < 0.2);
+  drawGoalNet(ctx, W - padX, H / 2 - 34, 14, 68, false, lastGoalFlash > 0 && match.ball?.x > 0.8);
+
+  // 4. Preparar entidades ordenadas por eje Y (profundidad 2.5D)
+  const ball = match.ball || { x: 0.5, y: 0.5, z: 0, ownerId: null };
+  const bx = padX + ball.x * fieldW;
+  const by = padY + ball.y * fieldH;
+  const bz = ball.z || 0;
+
+  // Actualizar estela del balón
+  ballTrail.push({ x: bx, y: by - bz * 18, alpha: 0.55 });
+  if (ballTrail.length > 10) ballTrail.shift();
+
+  const allAgents = [
+    ...(match.homeAgents || []).map((a, idx) => ({
+      ...a,
+      idx,
+      isHome: true,
+      c1: idx === 0 ? "#facc15" : (homeClub.colors?.[0] || "#2563eb"),
+      c2: idx === 0 ? "#0f172a" : (homeClub.colors?.[1] || "#ffffff")
+    })),
+    ...(match.awayAgents || []).map((a, idx) => ({
+      ...a,
+      idx,
+      isHome: false,
+      c1: idx === 0 ? "#10b981" : (awayClub.colors?.[0] || "#ef4444"),
+      c2: idx === 0 ? "#0f172a" : (awayClub.colors?.[1] || "#ffffff")
+    }))
+  ].filter(a => !a.expelled);
+
+  allAgents.sort((a, b) => a.y - b.y);
+
+  // Dibujar indicador táctico bajo el poseedor del balón
+  const owner = allAgents.find(a => a.playerId === ball.ownerId);
+  if (owner) {
+    const ox = padX + owner.x * fieldW;
+    const oy = padY + owner.y * fieldH;
+    const pulse = 13 + Math.sin(Date.now() / 120) * 3;
+    ctx.strokeStyle = "rgba(250, 204, 21, 0.85)";
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.roundRect(rx, ry, bw, bh, 10);
+    ctx.ellipse(ox, oy + 7, pulse, pulse * 0.55, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // 5. Dibujar cada futbolista en 2.5D con sombra, cuerpo, dorsal y nombre
+  allAgents.forEach(agent => {
+    const px = padX + agent.x * fieldW;
+    const py = padY + agent.y * fieldH;
+    const hasBall = agent.playerId === ball.ownerId;
+    const sprintBob = agent.isMoving ? Math.sin(Date.now() / 70 + agent.idx) * 1.8 : 0;
+
+    // Sombra proyectada en el césped
+    ctx.fillStyle = "rgba(0, 0, 0, 0.38)";
+    ctx.beginPath();
+    ctx.ellipse(px, py + 8, 9.5, 4.5, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = activeBanner.border;
+
+    // Cuerpo / Camiseta
+    const r = hasBall ? 10.5 : 9.5;
+    ctx.fillStyle = agent.c1;
+    ctx.beginPath();
+    ctx.arc(px, py - 2 + sprintBob, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Borde / Detalle secundario
+    ctx.lineWidth = hasBall ? 2.4 : 1.8;
+    ctx.strokeStyle = hasBall ? "#fde047" : agent.c2;
     ctx.stroke();
 
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "900 13px system-ui, sans-serif";
+    // Dorsal
+    const num = agent.idx === 0 ? "1" : String(agent.idx + 1);
+    const isLight = ["#ffffff", "#f8fafc", "#facc15", "#fde047"].includes((agent.c1 || "").toLowerCase());
+    ctx.fillStyle = isLight ? "#090d16" : "#ffffff";
+    ctx.font = "900 9px system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(activeBanner.text, w / 2, ry + bh / 2);
+    ctx.fillText(num, px, py - 1.5 + sprintBob);
+
+    // Tarjeta amarilla visible sobre el jugador si está amonestado
+    if (agent.yellowCard) {
+      ctx.fillStyle = "#facc15";
+      ctx.fillRect(px + 7, py - 12, 4, 6);
+    }
+
+    // Etiqueta limpia con apellido
+    const shortName = (agent.name || "").split(" ").pop();
+    if (hasBall || agent.highlightTimer > 0) {
+      ctx.font = "800 9.5px system-ui, sans-serif";
+      const textW = ctx.measureText(shortName).width + 10;
+      ctx.fillStyle = "rgba(6, 9, 19, 0.85)";
+      roundRect(ctx, px - textW / 2, py - 24, textW, 13, 4);
+      ctx.fill();
+
+      ctx.fillStyle = hasBall ? "#fde047" : "#ffffff";
+      ctx.fillText(shortName, px, py - 17.5);
+    }
+  });
+
+  // 6. Dibujar estela del balón y balón con elevación 2.5D (z)
+  ballTrail.forEach((pt, idx) => {
+    const ratio = (idx + 1) / ballTrail.length;
+    ctx.fillStyle = `rgba(255, 255, 255, ${ratio * 0.25})`;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 3.5 * ratio, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Sombra del balón en el suelo (se separa cuando sube en el aire)
+  const shadowScale = Math.max(0.45, 1 - bz * 0.4);
+  ctx.fillStyle = "rgba(0, 0, 0, 0.48)";
+  ctx.beginPath();
+  ctx.ellipse(bx + bz * 5, by + 4, 5.5 * shadowScale, 3 * shadowScale, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Balón elevado
+  const visualBallY = by - bz * 22;
+  const ballRadius = 4.8 + bz * 1.4;
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.arc(bx, visualBallY, ballRadius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#0f172a";
+  ctx.lineWidth = 1.3;
+  ctx.stroke();
+
+  // Banner flotante de acción en vivo (ej. "¡CENTRO AL ÁREA!", "¡PARADÓN!", "¡CONTRAATAQUE!")
+  if (match.actionBanner && match.actionBannerTimer > 0) {
+    ctx.save();
+    ctx.font = "900 12px system-ui, sans-serif";
+    const bannerW = ctx.measureText(match.actionBanner).width + 24;
+    ctx.fillStyle = "rgba(9, 13, 22, 0.88)";
+    roundRect(ctx, (W - bannerW) / 2, 10, bannerW, 24, 99);
+    ctx.fill();
+    ctx.strokeStyle = "#38bdf8";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.fillStyle = "#f8fafc";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(match.actionBanner, W / 2, 22);
     ctx.restore();
   }
+}
+
+function drawGoalNet(ctx, x, y, w, h, isLeft, isVibrating) {
+  const shake = isVibrating ? (Math.random() - 0.5) * 4 : 0;
+  ctx.fillStyle = "rgba(255, 255, 255, 0.14)";
+  ctx.fillRect(x + shake, y, w, h);
+
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.42)";
+  ctx.lineWidth = 1;
+  for (let gx = x; gx <= x + w; gx += 4) {
+    ctx.beginPath();
+    ctx.moveTo(gx + shake, y);
+    ctx.lineTo(gx + shake, y + h);
+    ctx.stroke();
+  }
+  for (let gy = y; gy <= y + h; gy += 6) {
+    ctx.beginPath();
+    ctx.moveTo(x + shake, gy);
+    ctx.lineTo(x + w + shake, gy);
+    ctx.stroke();
+  }
+
+  // Postes blancos gruesos
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 2.6;
+  ctx.strokeRect(x, y, w, h);
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }

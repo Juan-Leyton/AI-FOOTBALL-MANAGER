@@ -1,5 +1,5 @@
 import { store } from "../core/state.js";
-import { initCompetitions, initContinentalCup, CONTINENTAL_RIVALS } from "./competitions.js";
+import { initCompetitions } from "./competitions.js";
 import { TRAINING_PLANS } from "./training.js";
 import { SPONSORS_CATALOG, getRealisticWeeklyWage } from "./economy-market.js";
 
@@ -133,17 +133,6 @@ export function advanceSeason() {
   store.update(["season", "players", "competitions", "budget", "inbox", "trophies", "clubs"], draft => {
     if (!draft.trophies) draft.trophies = [];
 
-    CONTINENTAL_RIVALS.forEach(r => {
-      if (!draft.clubs[r.id]) {
-        draft.clubs[r.id] = {
-          ...r,
-          budget: 90000000,
-          formation: "4-3-3",
-          tactics: { mentality: 65, tempo: 65, press: 65 }
-        };
-      }
-    });
-
     const league = draft.competitions.league_1;
     const sorted = Object.entries(league.standings)
       .map(([clubId, s]) => ({ clubId, ...s }))
@@ -153,7 +142,7 @@ export function advanceSeason() {
     const prizeMoney = userRank === 1 ? 30000000 : userRank <= 4 ? 22000000 : 15000000;
 
     if (userRank === 1) {
-      draft.trophies.push({ season: draft.season || 1, title: "Primera División" });
+      draft.trophies.push({ season: draft.season || 1, title: league.name || "Primera División" });
     }
 
     draft.season = (draft.season || 1) + 1;
@@ -187,11 +176,8 @@ export function advanceSeason() {
       }
     });
 
-    const nextComps = initCompetitions(draft.clubs);
-    const top4Ids = sorted.slice(0, 4).map(t => t.clubId);
-    if (top4Ids.includes(draft.userClubId)) {
-      nextComps.cont_1 = initContinentalCup(top4Ids);
-    }
+    const nextComps = initCompetitions(draft.clubs, draft.userClubId);
+    const top2Ids = sorted.slice(0, 2).map(t => t.clubId);
 
     draft.competitions = nextComps;
 
@@ -202,7 +188,7 @@ export function advanceSeason() {
     draft.inbox.unshift({
       id: `season_${draft.season}`,
       title: `Inicio de Temporada ${draft.season}`,
-      body: `Finalizaste #${userRank}. Recibes ${(prizeMoney / 1e6).toFixed(0)} M€.${top4Ids.includes(draft.userClubId) ? " 🌍 ¡Clasificado a la Copa Continental Élite!" : ""}${expiredNotice}`,
+      body: `Finalizaste #${userRank}. Recibes ${(prizeMoney / 1e6).toFixed(0)} M€.${top2Ids.includes(draft.userClubId) ? " 🌍 ¡Clasificado a la Copa Continental!" : ""}${expiredNotice}`,
       date: `Temporada ${draft.season}`,
       resolved: true,
       choices: []
