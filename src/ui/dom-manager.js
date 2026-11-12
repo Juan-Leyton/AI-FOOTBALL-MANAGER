@@ -33,6 +33,7 @@ import { LEAGUES_CATALOG, buildWorldDatabase } from "../data/world-database.js";
 import { renderEnhancedPitch } from "./pitch-renderer.js";
 import { renderPlayerProfileModal } from "./player-modal.js";
 import { renderTacticsExtrasUI } from "./tactics-extras.js";
+import { renderMarketEconomyExtrasUI } from "./market-economy-extras.js";
 import { showToast } from "./toast.js";
 import { renderClubBadge } from "./badges.js";
 
@@ -354,6 +355,7 @@ function render() {
   `;
 
   renderTacticsExtrasUI();
+  renderMarketEconomyExtrasUI();
   bindEvents(state);
 
   if (wasSearching) {
@@ -545,7 +547,7 @@ function renderHomeTab(state) {
           <div><small style="color: var(--text-muted); display:block; font-size:10.5px;">PJ</small><b style="font-size:19px;">${cs.played}</b></div>
           <div><small style="color: var(--text-muted); display:block; font-size:10.5px;">GANADOS</small><b style="color: var(--success); font-size:19px;">${cs.wins}</b></div>
           <div><small style="color: var(--text-muted); display:block; font-size:10.5px;">EMPATADOS</small><b style="font-size:19px;">${cs.draws}</b></div>
-          <div><small style="color: var(--text-muted); display:block; font-size:10.5px;">PERDIDOS</small><b style="var(--danger); font-size:19px;">${cs.losses}</b></div>
+          <div><small style="color: var(--text-muted); display:block; font-size:10.5px;">PERDIDOS</small><b style="color: var(--danger); font-size:19px;">${cs.losses}</b></div>
         </div>
         <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:6px;">
           <span>Titulares Disponibles:</span>
