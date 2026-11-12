@@ -8,6 +8,8 @@ import { autoPickBestXI } from "../engine/squad-manager.js";
 import { simulateQuickMatch } from "../engine/quick-sim.js";
 import { SCOUTING_REGIONS, scoutYouthRegion, signProspectToAcademy, promoteAcademyPlayerToFirstTeam, releaseAcademyPlayer } from "../engine/youth-scouting.js";
 import { ensureFreeAgentsPool, getFreeAgentSignBonus, signFreeAgent, retrainPlayerPosition, applyIndividualFocus } from "../engine/player-development.js";
+import { MANAGER_PERKS, ensureCareerHooksState, grantManagerXp, unlockManagerPerk, evaluateObjectivesProgress } from "../engine/career-hooks.js";
+import { processSeasonRetirementsAndRegens } from "../engine/world-longevity.js";
 import { injectCustomLegends } from "../data/custom-legends.js";
 import { triggerPostMatchEvent, resolveInboxChoice } from "../ai/director.js";
 import { processRoundProgression, renewPlayerContract, recordMatchInCareer } from "../engine/progression.js";
@@ -54,6 +56,7 @@ export function initUI() {
 
   ensureFreeAgentsPool();
   injectCustomLegends();
+  ensureCareerHooksState();
   store.subscribe(render);
   render();
 }
@@ -124,6 +127,8 @@ function render() {
     return;
   }
 
+  ensureCareerHooksState();
+
   if (state.liveMatch) {
     const m = state.liveMatch;
     const isUserHome = m.homeId === state.userClubId;
@@ -155,6 +160,7 @@ function render() {
   const boardConf = state.boardConfidence || 85;
   const confColor = boardConf >= 75 ? "#10b981" : boardConf >= 50 ? "#f59e0b" : "#ef4444";
   const userStadium = getClubStadium(userClub, state.staff?.stadium || 1);
+  const mp = state.managerProfile || { level: 1, xp: 0, nextLevelXp: 1000, skillPoints: 0 };
 
   root.innerHTML = `
     <div class="fm-app-shell">
@@ -165,7 +171,7 @@ function render() {
               ${renderClubBadge(userClub, 62)}
             </div>
             <h2 style="font-size: 17px; font-weight: 900; letter-spacing: -0.01em; margin-bottom: 2px;">${userClub.name}</h2>
-            <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px;">
+            <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px;">
               ${userClub.flag || "⚽"} ${userClub.leagueName || "Primera División"} • T${state.season || 1} J${Math.min(22, leagueRound)}/22
             </div>
             <div style="text-align:left; font-size:11px; color:var(--text-muted); margin-bottom:4px;">Confianza Directiva</div>
@@ -173,7 +179,7 @@ function render() {
           </div>
 
           <nav class="fm-sidebar-nav">
-            ${renderTabBtn("home", "🏟️ Centro del Club", activeTab, userClub.colors[0])}
+            ${renderTabBtn("home", "🏟️ Centro del Club", activeTab, userClub.colors[0], mp.skillPoints || 0)}
             ${renderTabBtn("squad", "👕 Plantilla", activeTab, userClub.colors[0])}
             ${renderTabBtn("tactics", "📋 Pizarra Táctica", activeTab, userClub.colors[0])}
             ${renderTabBtn("staff", "🎓 Academia y Staff", activeTab, userClub.colors[0])}
@@ -213,6 +219,13 @@ function render() {
               <div>
                 <small>MEDIA CLUB</small><br>
                 <b>OVR ${userClub.ovr}</b>
+              </div>
+            </div>
+            <div class="fm-kpi-pill">
+              <span>🎖️</span>
+              <div>
+                <small>MÁNAGER NVL ${mp.level}</small><br>
+                <b style="color: #60a5fa;">${mp.xp} / ${mp.nextLevelXp} XP</b>
               </div>
             </div>
             <div class="fm-kpi-pill">
@@ -320,6 +333,9 @@ function renderHomeTab(state) {
   const fin = state.lastFinanceReport;
   const trophies = state.trophies || [];
   const cs = state.careerStats || { played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0 };
+  const season = state.season || 1;
+  const objectives = (state.seasonObjectives || []).filter(o => o.season === season);
+  const mp = state.managerProfile || { level: 1, xp: 0, nextLevelXp: 1000, skillPoints: 0, perks: {} };
 
   let matchTitle = "Fin de Temporada";
   let matchCard = `<p><b>¡Temporada Finalizada!</b> Has completado los 22 partidos de Liga.</p>`;
@@ -398,7 +414,7 @@ function renderHomeTab(state) {
           <div><small style="color: var(--text-muted); display:block; font-size:10.5px;">PJ</small><b style="font-size:19px;">${cs.played}</b></div>
           <div><small style="color: var(--text-muted); display:block; font-size:10.5px;">GANADOS</small><b style="color: var(--success); font-size:19px;">${cs.wins}</b></div>
           <div><small style="color: var(--text-muted); display:block; font-size:10.5px;">EMPATADOS</small><b style="font-size:19px;">${cs.draws}</b></div>
-          <div><small style="color: var(--text-muted); display:block; font-size:10.5px;">PERDIDOS</small><b style="color: var(--danger); font-size:19px;">${cs.losses}</b></div>
+          <div><small style="color: var(--text-muted); display:block; font-size:10.5px;">PERDIDOS</small><b style="var(--danger); font-size:19px;">${cs.losses}</b></div>
         </div>
         <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:6px;">
           <span>Titulares Disponibles:</span>
@@ -421,6 +437,62 @@ function renderHomeTab(state) {
         </div>
       </div>
     </div>
+
+    <div class="fm-grid-2">
+      <div class="fm-card">
+        <h3>🎯 Objetivos de Directiva (Temporada ${season})</h3>
+        <div style="display:grid; gap:10px;">
+          ${objectives.map(obj => {
+            const progText = obj.type === "league_rank"
+              ? `Meta: Top ${obj.target}`
+              : `${Math.min(obj.target, obj.current || 0)} / ${obj.target}`;
+            return `
+              <div style="background:rgba(6,9,19,0.75); border:1px solid ${obj.completed ? 'rgba(16,185,129,0.45)' : 'var(--panel-border)'}; border-radius:11px; padding:11px 13px; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+                <div>
+                  <div style="font-size:13px; font-weight:800; color:${obj.completed ? '#34d399' : '#f8fafc'};">
+                    ${obj.completed ? '✅' : '📌'} ${obj.title}
+                  </div>
+                  <small style="color:var(--text-muted);">Recompensa: <b style="color:#34d399;">+${(obj.rewardCash / 1e6).toFixed(1)} M€</b> • <b style="color:#60a5fa;">+${obj.rewardXp} XP</b></small>
+                </div>
+                <span style="font-size:11.5px; font-weight:800; padding:4px 9px; border-radius:7px; background:${obj.completed ? 'rgba(16,185,129,0.2)' : 'rgba(30,41,59,0.9)'}; color:${obj.completed ? '#34d399' : '#cbd5e1'}; white-space:nowrap;">
+                  ${obj.completed ? 'Cumplido' : progText}
+                </span>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      </div>
+
+      <div class="fm-card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <h3 style="margin:0;">🎖️ Perks de Mánager (Nivel ${mp.level})</h3>
+          <span style="background:${(mp.skillPoints || 0) > 0 ? 'rgba(250,204,21,0.22)' : 'rgba(30,41,59,0.85)'}; color:${(mp.skillPoints || 0) > 0 ? '#fde047' : 'var(--text-muted)'}; border:1px solid ${(mp.skillPoints || 0) > 0 ? 'rgba(250,204,21,0.5)' : 'var(--panel-border)'}; padding:3px 10px; border-radius:99px; font-size:11.5px; font-weight:800;">
+            ${mp.skillPoints || 0} Puntos disp.
+          </span>
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:9px;">
+          ${Object.values(MANAGER_PERKS).map(pk => {
+            const cur = mp.perks?.[pk.key] || 0;
+            const canUnlock = (mp.skillPoints || 0) > 0 && cur < pk.maxLevel;
+            return `
+              <div style="background:rgba(6,9,19,0.75); border:1px solid var(--panel-border); border-radius:10px; padding:10px; display:flex; flex-direction:column; justify-content:space-between; gap:7px;">
+                <div>
+                  <div style="display:flex; justify-content:space-between; font-size:12.5px; font-weight:800;">
+                    <span>${pk.name}</span>
+                    <span style="color:#60a5fa;">${cur}/${pk.maxLevel}</span>
+                  </div>
+                  <small style="color:var(--text-muted); font-size:11px; line-height:1.35; display:block; margin-top:3px;">${pk.desc}</small>
+                </div>
+                <button class="btn-unlock-perk fm-btn ${canUnlock ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-perk="${pk.key}" ${!canUnlock ? 'disabled' : ''} style="padding:5px 8px; font-size:11px; ${!canUnlock ? 'opacity:0.48; cursor:not-allowed;' : ''}">
+                  ${cur >= pk.maxLevel ? '✓ Al Máximo' : '+ Mejorar (1 pt)'}
+                </button>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      </div>
+    </div>
+
     ${renderLeagueTableCard(state, "league_1")}
   `;
 }
@@ -491,7 +563,7 @@ function renderSquadTab(state) {
                   </td>
                   <td>
                     <span class="btn-inspect-player" data-pid="${p.id}" style="cursor:pointer; font-weight:800; text-decoration:underline; text-decoration-color:rgba(255,255,255,0.28); text-underline-offset:3px;">${p.name}</span>
-                    ${p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">★ LEYENDA</span>` : p.isYouth ? `<span style="background:rgba(59,130,246,0.25); color:#60a5fa; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CANTERA</span>` : ""}
+                    ${p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">★ LEYENDA</span>` : p.isRegen ? `<span style="background:rgba(16,185,129,0.22); color:#34d399; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">REGEN</span>` : p.isYouth ? `<span style="background:rgba(59,130,246,0.25); color:#60a5fa; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CANTERA</span>` : ""}
                     ${p.isLoaned ? `<span style="background:rgba(168,85,247,0.25); color:#d8b4fe; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CEDIDO</span>` : ""}
                     <small style="color: var(--text-muted);">(${p.age}a)</small>
                     ${(p.yellowCardsSeason || 0) > 0 ? `<span style="margin-left:4px; font-size:10px; color:#facc15; font-weight:700;">🟨 ${p.yellowCardsSeason}/5</span>` : ""}
@@ -908,7 +980,7 @@ function renderTransfersTab(state) {
                 <tr>
                   <td>
                     <span class="btn-inspect-player" data-pid="${p.id}" style="cursor:pointer; font-weight:800; text-decoration:underline; text-decoration-color:rgba(255,255,255,0.28); text-underline-offset:3px;">${p.name}</span>
-                    ${p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">★ LEYENDA</span>` : ""}
+                    ${p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">★ LEYENDA</span>` : p.isRegen ? `<span style="background:rgba(16,185,129,0.22); color:#34d399; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">REGEN</span>` : ""}
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px; display:flex; gap:8px;">
                       <span>RIT <b style="color:#e2e8f0;">${attrs.RIT}</b></span>
                       <span>TIR <b style="color:#e2e8f0;">${attrs.TIR}</b></span>
@@ -989,6 +1061,7 @@ function renderInboxTab(state) {
 
 function renderCompetitionsTab(state) {
   const otherLeagues = Object.values(state.competitions?.otherLeagues || {});
+  const hallOfFame = state.hallOfFame || [];
   return `
     ${renderCupCard(state, "cont_1", "🌍")}
     ${renderCupCard(state, "cup_1", "🏆")}
@@ -1008,6 +1081,36 @@ function renderCompetitionsTab(state) {
       <div>${renderLeagueTableCard(state, selectedStandingsView)}</div>
       <div>${renderTopScorersCard(state)}</div>
     </div>
+
+    ${hallOfFame.length > 0 ? `
+      <div class="fm-card">
+        <h3>🏛️ Salón de la Fama — Historial de Temporadas</h3>
+        <div style="overflow-x:auto;">
+          <table class="fm-table">
+            <thead>
+              <tr>
+                <th>Temporada</th>
+                <th>Club</th>
+                <th>Posición Liga</th>
+                <th>Puntos</th>
+                <th>Goleador del Equipo</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${hallOfFame.map(h => `
+                <tr>
+                  <td><b>T${h.season}</b></td>
+                  <td><b>${h.clubName}</b></td>
+                  <td><span style="color:${h.leaguePos === 1 ? '#fde047' : '#38bdf8'}; font-weight:800;">#${h.leaguePos}</span></td>
+                  <td><b>${h.points} pts</b></td>
+                  <td>${h.topScorerName} (${h.topScorerGoals} goles)</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    ` : ""}
   `;
 }
 
@@ -1307,6 +1410,14 @@ function renderClubSelection(state) {
   `;
 }
 
+function handleSeasonEndHooks(seasonNum) {
+  processSeasonRetirementsAndRegens();
+  runEndOfSeasonTransition();
+  grantManagerXp(500, `Temporada ${seasonNum} completada`);
+  ensureCareerHooksState();
+  showToast(`🏆 ¡Temporada ${seasonNum} Finalizada! Revisa Bandeja IA (Gala y Regens) y Salón de la Fama.`, "success", 5800);
+}
+
 function runQuickSimulationFlow() {
   const res = simulateQuickMatch();
   if (!res.ok) {
@@ -1317,14 +1428,14 @@ function runQuickSimulationFlow() {
     return;
   }
 
+  const won = res.outcome === "success";
+  grantManagerXp(won ? 180 : res.outcome === "info" ? 90 : 40, "Partido jugado");
+  evaluateObjectivesProgress({ wonMatch: won });
   showToast(res.msg, res.outcome || "info", 4500);
 
   if (res.seasonFinished) {
     const seasonNum = store.get().season || 1;
-    setTimeout(() => {
-      runEndOfSeasonTransition();
-      showToast(`🏆 ¡Temporada ${seasonNum} Finalizada! Revisa tu Bandeja IA para ver la Gala de Premios.`, "success", 5500);
-    }, 350);
+    setTimeout(() => handleSeasonEndHooks(seasonNum), 350);
   }
 }
 
@@ -1368,12 +1479,23 @@ function bindEvents(state) {
     });
   });
 
+  document.querySelectorAll(".btn-unlock-perk").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const res = unlockManagerPerk(btn.dataset.perk);
+      showToast(res.msg, res.ok ? "success" : "warning");
+    });
+  });
+
   document.getElementById("btn-gen-event")?.addEventListener("click", () => {
     triggerPostMatchEvent();
   });
 
   document.getElementById("btn-promote-youth")?.addEventListener("click", () => {
     const res = promoteYouthProspect();
+    if (res.ok) {
+      grantManagerXp(120, "Canterano ascendido");
+      evaluateObjectivesProgress({ signedU21: true });
+    }
     showToast(res.msg, res.ok ? "success" : "warning");
   });
 
@@ -1394,6 +1516,10 @@ function bindEvents(state) {
   document.querySelectorAll(".btn-promote-academy-player").forEach(btn => {
     btn.addEventListener("click", () => {
       const res = promoteAcademyPlayerToFirstTeam(btn.dataset.acid);
+      if (res.ok) {
+        grantManagerXp(140, "Promesa juvenil ascendida");
+        evaluateObjectivesProgress({ signedU21: true });
+      }
       showToast(res.msg, res.ok ? "success" : "warning");
     });
   });
@@ -1440,6 +1566,7 @@ function bindEvents(state) {
   document.querySelectorAll(".btn-upgrade-staff").forEach(btn => {
     btn.addEventListener("click", () => {
       const res = upgradeStaff(btn.dataset.key);
+      if (res.ok) grantManagerXp(100, "Mejora de club");
       showToast(res.msg, res.ok ? "success" : "warning");
     });
   });
@@ -1509,17 +1636,24 @@ function bindEvents(state) {
   document.querySelectorAll(".btn-buy-player").forEach(btn => {
     btn.addEventListener("click", () => {
       const pid = btn.dataset.pid;
+      const targetPlayer = store.get().players?.[pid];
       const res = buyPlayer(pid, false);
       if (!res.ok) {
         if (res.needsCounter) {
           if (confirm(`${res.msg}\n\n¿Deseas aceptar la contraoferta y ficharlo ahora?`)) {
             const retry = buyPlayer(pid, true);
+            if (retry.ok && (targetPlayer?.age || 25) <= 21) {
+              evaluateObjectivesProgress({ signedU21: true });
+            }
             showToast(retry.msg, retry.ok ? "success" : "error");
           }
         } else {
           showToast(res.msg, "warning");
         }
       } else {
+        if ((targetPlayer?.age || 25) <= 21) {
+          evaluateObjectivesProgress({ signedU21: true });
+        }
         showToast(res.msg, "success");
       }
     });
@@ -1527,21 +1661,36 @@ function bindEvents(state) {
 
   document.querySelectorAll(".btn-sign-free-agent").forEach(btn => {
     btn.addEventListener("click", () => {
-      const res = signFreeAgent(btn.dataset.pid);
+      const pid = btn.dataset.pid;
+      const targetPlayer = store.get().players?.[pid];
+      const res = signFreeAgent(pid);
+      if (res.ok && (targetPlayer?.age || 25) <= 21) {
+        evaluateObjectivesProgress({ signedU21: true });
+      }
       showToast(res.msg, res.ok ? "success" : "warning");
     });
   });
 
   document.querySelectorAll(".btn-lowball-player").forEach(btn => {
     btn.addEventListener("click", () => {
-      const res = makeLowballOffer(btn.dataset.pid);
+      const pid = btn.dataset.pid;
+      const targetPlayer = store.get().players?.[pid];
+      const res = makeLowballOffer(pid);
+      if (res.ok && (targetPlayer?.age || 25) <= 21) {
+        evaluateObjectivesProgress({ signedU21: true });
+      }
       showToast(res.msg, res.ok ? "success" : "warning");
     });
   });
 
   document.querySelectorAll(".btn-loan-player").forEach(btn => {
     btn.addEventListener("click", () => {
-      const res = loanPlayer(btn.dataset.pid);
+      const pid = btn.dataset.pid;
+      const targetPlayer = store.get().players?.[pid];
+      const res = loanPlayer(pid);
+      if (res.ok && (targetPlayer?.age || 25) <= 21) {
+        evaluateObjectivesProgress({ signedU21: true });
+      }
       showToast(res.msg, res.ok ? "success" : "warning");
     });
   });
@@ -1620,9 +1769,14 @@ document.addEventListener("click", e => {
 
   const modalFreeBtn = e.target.closest(".btn-modal-free-agent");
   if (modalFreeBtn) {
-    const res = signFreeAgent(modalFreeBtn.dataset.pid);
+    const pid = modalFreeBtn.dataset.pid;
+    const targetPlayer = store.get().players?.[pid];
+    const res = signFreeAgent(pid);
     showToast(res.msg, res.ok ? "success" : "warning");
-    if (res.ok) inspectedPlayerId = null;
+    if (res.ok) {
+      if ((targetPlayer?.age || 25) <= 21) evaluateObjectivesProgress({ signedU21: true });
+      inspectedPlayerId = null;
+    }
     render();
     return;
   }
@@ -1630,17 +1784,22 @@ document.addEventListener("click", e => {
   const modalBuyBtn = e.target.closest(".btn-modal-buy");
   if (modalBuyBtn) {
     const pid = modalBuyBtn.dataset.pid;
+    const targetPlayer = store.get().players?.[pid];
     const res = buyPlayer(pid, false);
     if (!res.ok) {
       if (res.needsCounter && confirm(`${res.msg}\n\n¿Deseas aceptar la contraoferta y ficharlo ahora?`)) {
         const retry = buyPlayer(pid, true);
         showToast(retry.msg, retry.ok ? "success" : "error");
-        if (retry.ok) inspectedPlayerId = null;
+        if (retry.ok) {
+          if ((targetPlayer?.age || 25) <= 21) evaluateObjectivesProgress({ signedU21: true });
+          inspectedPlayerId = null;
+        }
       } else if (!res.needsCounter) {
         showToast(res.msg, "warning");
       }
     } else {
       showToast(res.msg, "success");
+      if ((targetPlayer?.age || 25) <= 21) evaluateObjectivesProgress({ signedU21: true });
       inspectedPlayerId = null;
     }
     render();
@@ -1649,18 +1808,28 @@ document.addEventListener("click", e => {
 
   const modalLowBtn = e.target.closest(".btn-modal-lowball");
   if (modalLowBtn) {
-    const res = makeLowballOffer(modalLowBtn.dataset.pid);
+    const pid = modalLowBtn.dataset.pid;
+    const targetPlayer = store.get().players?.[pid];
+    const res = makeLowballOffer(pid);
     showToast(res.msg, res.ok ? "success" : "warning");
-    if (res.ok) inspectedPlayerId = null;
+    if (res.ok) {
+      if ((targetPlayer?.age || 25) <= 21) evaluateObjectivesProgress({ signedU21: true });
+      inspectedPlayerId = null;
+    }
     render();
     return;
   }
 
   const modalLoanBtn = e.target.closest(".btn-modal-loan");
   if (modalLoanBtn) {
-    const res = loanPlayer(modalLoanBtn.dataset.pid);
+    const pid = modalLoanBtn.dataset.pid;
+    const targetPlayer = store.get().players?.[pid];
+    const res = loanPlayer(pid);
     showToast(res.msg, res.ok ? "success" : "warning");
-    if (res.ok) inspectedPlayerId = null;
+    if (res.ok) {
+      if ((targetPlayer?.age || 25) <= 21) evaluateObjectivesProgress({ signedU21: true });
+      inspectedPlayerId = null;
+    }
     render();
     return;
   }
@@ -1700,6 +1869,7 @@ document.addEventListener("click", e => {
     });
     ensureFreeAgentsPool();
     injectCustomLegends();
+    ensureCareerHooksState();
   }
 
   const audioBtn = e.target.closest("#btn-toggle-audio");
@@ -1736,6 +1906,9 @@ document.addEventListener("click", e => {
     if (m) {
       const compId = stateBefore.activeCompId || "league_1";
       const wasUserHome = m.homeId === stateBefore.userClubId;
+      const userGoals = wasUserHome ? m.gh : m.ga;
+      const rivalGoals = wasUserHome ? m.ga : m.gh;
+      const won = userGoals > rivalGoals;
 
       advanceMedicalRecovery();
       applyPostMatchMedicalAndCards(m);
@@ -1746,13 +1919,13 @@ document.addEventListener("click", e => {
       triggerPostMatchEvent();
       maybeGenerateIncomingOffer();
 
+      grantManagerXp(won ? 240 : userGoals === rivalGoals ? 110 : 50, "Partido en vivo");
+      evaluateObjectivesProgress({ wonMatch: won });
+
       const stateAfter = store.get();
       const league = stateAfter.competitions.league_1;
       if (league.currentRound >= league.schedule.length) {
-        setTimeout(() => {
-          runEndOfSeasonTransition();
-          showToast(`🏆 ¡Temporada ${stateAfter.season || 1} Finalizada! Revisa tu Bandeja IA para ver la Gala de Premios.`, "success", 5500);
-        }, 300);
+        setTimeout(() => handleSeasonEndHooks(stateAfter.season || 1), 300);
       }
     }
   }

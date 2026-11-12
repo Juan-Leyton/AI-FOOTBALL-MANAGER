@@ -1,5 +1,7 @@
 import { store } from "../core/state.js";
 import { initCompetitions } from "./competitions.js";
+import { processSeasonRetirementsAndRegens } from "./world-longevity.js";
+import { grantManagerXp, ensureCareerHooksState } from "./career-hooks.js";
 
 function getTopLeagueClubs(leagueObj, count = 2) {
   if (!leagueObj?.standings) return [];
