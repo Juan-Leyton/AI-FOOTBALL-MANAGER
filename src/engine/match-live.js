@@ -4,22 +4,22 @@ let matchInterval = null;
 
 export const FORMATIONS = {
   "4-3-3": [
-    { pos: "POR", x: 0.05, y: 0.5 },
-    { pos: "DEF", x: 0.22, y: 0.15 }, { pos: "DEF", x: 0.18, y: 0.38 }, { pos: "DEF", x: 0.18, y: 0.62 }, { pos: "DEF", x: 0.22, y: 0.85 },
-    { pos: "MED", x: 0.38, y: 0.3 }, { pos: "MED", x: 0.34, y: 0.5 }, { pos: "MED", x: 0.38, y: 0.7 },
-    { pos: "DEL", x: 0.52, y: 0.2 }, { pos: "DEL", x: 0.55, y: 0.5 }, { pos: "DEL", x: 0.52, y: 0.8 }
+    { pos: "POR", x: 0.04, y: 0.50 },
+    { pos: "DEF", x: 0.22, y: 0.14 }, { pos: "DEF", x: 0.19, y: 0.38 }, { pos: "DEF", x: 0.19, y: 0.62 }, { pos: "DEF", x: 0.22, y: 0.86 },
+    { pos: "MED", x: 0.40, y: 0.26 }, { pos: "MED", x: 0.35, y: 0.50 }, { pos: "MED", x: 0.40, y: 0.74 },
+    { pos: "DEL", x: 0.58, y: 0.18 }, { pos: "DEL", x: 0.62, y: 0.50 }, { pos: "DEL", x: 0.58, y: 0.82 }
   ],
   "4-4-2": [
-    { pos: "POR", x: 0.05, y: 0.5 },
-    { pos: "DEF", x: 0.22, y: 0.15 }, { pos: "DEF", x: 0.18, y: 0.38 }, { pos: "DEF", x: 0.18, y: 0.62 }, { pos: "DEF", x: 0.22, y: 0.85 },
-    { pos: "MED", x: 0.4, y: 0.15 }, { pos: "MED", x: 0.36, y: 0.38 }, { pos: "MED", x: 0.36, y: 0.62 }, { pos: "MED", x: 0.4, y: 0.85 },
-    { pos: "DEL", x: 0.54, y: 0.38 }, { pos: "DEL", x: 0.54, y: 0.62 }
+    { pos: "POR", x: 0.04, y: 0.50 },
+    { pos: "DEF", x: 0.22, y: 0.14 }, { pos: "DEF", x: 0.19, y: 0.38 }, { pos: "DEF", x: 0.19, y: 0.62 }, { pos: "DEF", x: 0.22, y: 0.86 },
+    { pos: "MED", x: 0.42, y: 0.14 }, { pos: "MED", x: 0.38, y: 0.38 }, { pos: "MED", x: 0.38, y: 0.62 }, { pos: "MED", x: 0.42, y: 0.86 },
+    { pos: "DEL", x: 0.60, y: 0.36 }, { pos: "DEL", x: 0.60, y: 0.64 }
   ],
   "3-5-2": [
-    { pos: "POR", x: 0.05, y: 0.5 },
-    { pos: "DEF", x: 0.2, y: 0.22 }, { pos: "DEF", x: 0.18, y: 0.5 }, { pos: "DEF", x: 0.2, y: 0.78 },
-    { pos: "MED", x: 0.38, y: 0.12 }, { pos: "MED", x: 0.35, y: 0.34 }, { pos: "MED", x: 0.32, y: 0.5 }, { pos: "MED", x: 0.35, y: 0.66 }, { pos: "MED", x: 0.38, y: 0.88 },
-    { pos: "DEL", x: 0.54, y: 0.38 }, { pos: "DEL", x: 0.54, y: 0.62 }
+    { pos: "POR", x: 0.04, y: 0.50 },
+    { pos: "DEF", x: 0.20, y: 0.22 }, { pos: "DEF", x: 0.18, y: 0.50 }, { pos: "DEF", x: 0.20, y: 0.78 },
+    { pos: "MED", x: 0.40, y: 0.12 }, { pos: "MED", x: 0.36, y: 0.34 }, { pos: "MED", x: 0.33, y: 0.50 }, { pos: "MED", x: 0.36, y: 0.66 }, { pos: "MED", x: 0.40, y: 0.88 },
+    { pos: "DEL", x: 0.60, y: 0.36 }, { pos: "DEL", x: 0.60, y: 0.64 }
   ]
 };
 
@@ -27,12 +27,11 @@ function createAgentFromPlayer(player, slot, i, isHome) {
   const startX = isHome ? slot.x : 1 - slot.x;
   const ovr = player?.ovr || 78;
   const stamina = player?.stamina ?? 100;
-  // Velocidad real escalada por OVR y estado físico
-  const skillFactor = 0.85 + ((ovr - 70) * 0.012);
-  const staminaFactor = 0.75 + (stamina / 100) * 0.25;
+  const skillFactor = 0.90 + ((ovr - 70) * 0.011);
 
   return {
     id: i,
+    team: isHome ? "home" : "away",
     playerId: player?.id || null,
     name: player?.name || `Jugador ${i + 1}`,
     ovr,
@@ -44,7 +43,8 @@ function createAgentFromPlayer(player, slot, i, isHome) {
     y: slot.y,
     vx: 0,
     vy: 0,
-    speed: (0.0078 + Math.random() * 0.0025) * skillFactor * staminaFactor,
+    speed: (0.0068 + Math.random() * 0.0014) * skillFactor,
+    decisionTimer: 0,
     noiseOffset: Math.random() * 100
   };
 }
@@ -54,14 +54,24 @@ function initAgents(club, playersMap, isHome) {
   const base = FORMATIONS[formKey] || FORMATIONS["4-3-3"];
   const clubPlayers = Object.values(playersMap || {}).filter(p => p.clubId === club.id);
   const starters = clubPlayers.filter(p => p.starter).slice(0, 11);
-
   return base.map((slot, i) => createAgentFromPlayer(starters[i], slot, i, isHome));
+}
+
+function getInitialTacticLabel(club) {
+  const m = club?.tactics?.mentality ?? 50;
+  if (m >= 65) return "Ofensivo";
+  if (m <= 38) return "Defensivo";
+  return "Equilibrado";
 }
 
 export function startLiveMatch(homeId, awayId, onFinish) {
   const state = store.get();
   const homeClub = state.clubs[homeId];
   const awayClub = state.clubs[awayId];
+
+  const homeAgents = initAgents(homeClub, state.players, true);
+  const awayAgents = initAgents(awayClub, state.players, false);
+  const kickoffPlayer = homeAgents[9] || homeAgents[6];
 
   const liveData = {
     homeId,
@@ -70,21 +80,34 @@ export function startLiveMatch(homeId, awayId, onFinish) {
     awayName: awayClub.name,
     homeColors: homeClub.colors,
     awayColors: awayClub.colors,
-    homeAgents: initAgents(homeClub, state.players, true),
-    awayAgents: initAgents(awayClub, state.players, false),
-    homeTactic: "Equilibrado",
-    awayTactic: "Equilibrado",
+    homeSliders: homeClub.tactics || { mentality: 55, tempo: 55, press: 55 },
+    awaySliders: awayClub.tactics || { mentality: 55, tempo: 55, press: 55 },
+    homeAgents,
+    awayAgents,
+    homeTactic: getInitialTacticLabel(homeClub),
+    awayTactic: getInitialTacticLabel(awayClub),
     subsUsed: 0,
     maxSubs: 5,
-    goalScorers: [], // { playerId, name, clubId, minute }
-    ball: { x: 0.5, y: 0.5, vx: 0, vy: 0 },
+    goalScorers: [],
+    stats: { homePoss: 1, awayPoss: 1, homeShots: 0, awayShots: 0 },
+    ball: {
+      x: 0.5,
+      y: 0.5,
+      vx: 0,
+      vy: 0,
+      ownerTeam: "home",
+      ownerId: kickoffPlayer.id,
+      isShot: false,
+      shooter: null,
+      stealCooldown: 10
+    },
     minute: 0,
     tick: 0,
     gh: 0,
     ga: 0,
     paused: false,
     finished: false,
-    events: [`0' - ¡Comienza el encuentro entre ${homeClub.name} y ${awayClub.name}!`]
+    events: [`0' - ¡Saque inicial! ${homeClub.name} vs ${awayClub.name}`]
   };
 
   store.update(["liveMatch"], draft => { draft.liveMatch = liveData; });
@@ -95,131 +118,295 @@ export function startLiveMatch(homeId, awayId, onFinish) {
     const m = currentState.liveMatch;
     if (!m || m.finished || m.paused || !m.ball) return;
 
-    let { ball, homeAgents, awayAgents, tick, gh, ga, events, homeTactic, awayTactic, goalScorers } = m;
+    let { ball, homeAgents, awayAgents, tick, gh, ga, events, homeTactic, awayTactic, goalScorers, stats } = m;
     const newEvents = [...events];
     const newScorers = [...(goalScorers || [])];
+    const newStats = { ...(stats || { homePoss: 1, awayPoss: 1, homeShots: 0, awayShots: 0 }) };
 
     const nextTick = (tick || 0) + 1;
     const currentMin = Math.floor(nextTick / 10);
 
-    ball.x += ball.vx;
-    ball.y += ball.vy;
-    ball.vx *= 0.93;
-    ball.vy *= 0.93;
+    if (ball.stealCooldown > 0) ball.stealCooldown -= 1;
 
-    if (ball.y < 0.03 || ball.y > 0.97) ball.vy *= -0.6;
-    ball.x = Math.max(0.01, Math.min(0.99, ball.x));
-    ball.y = Math.max(0.03, Math.min(0.97, ball.y));
+    if (ball.ownerTeam === "home") newStats.homePoss += 1;
+    else if (ball.ownerTeam === "away") newStats.awayPoss += 1;
 
-    const updateTeam = (agents, isHome, tactic) => {
-      let closestAgent = null;
-      let minDist = Infinity;
+    const getTacticProfile = (tacticLabel, sliders) => {
+      const tempoFactor = 0.85 + ((sliders?.tempo ?? 50) / 100) * 0.30;
+      const pressFactor = 0.80 + ((sliders?.press ?? 50) / 100) * 0.40;
 
-      let tacticShift = 0;
-      if (tactic === "Ofensivo") tacticShift = isHome ? 0.15 : -0.15;
-      if (tactic === "Defensivo") tacticShift = isHome ? -0.15 : 0.15;
+      if (tacticLabel === "Ofensivo") {
+        return {
+          blockShift: 0.17,
+          pressRange: 0.24 * pressFactor,
+          passSpeed: 0.028 * tempoFactor,
+          shootRange: 0.30,
+          shootAggression: 0.48,
+          dribbleRatio: 0.42
+        };
+      }
+      if (tacticLabel === "Defensivo") {
+        return {
+          blockShift: -0.15,
+          pressRange: 0.12 * pressFactor,
+          passSpeed: 0.023 * tempoFactor,
+          shootRange: 0.23,
+          shootAggression: 0.28,
+          dribbleRatio: 0.25
+        };
+      }
+      return {
+        blockShift: 0.01,
+        pressRange: 0.18 * pressFactor,
+        passSpeed: 0.025 * tempoFactor,
+        shootRange: 0.26,
+        shootAggression: 0.38,
+        dribbleRatio: 0.34
+      };
+    };
 
+    const homeProfile = getTacticProfile(homeTactic, m.homeSliders);
+    const awayProfile = getTacticProfile(awayTactic, m.awaySliders);
+
+    let carrier = null;
+    if (ball.ownerTeam && ball.ownerId !== null) {
+      const pool = ball.ownerTeam === "home" ? homeAgents : awayAgents;
+      carrier = pool.find(a => a.id === ball.ownerId) || null;
+    }
+
+    if (carrier) {
+      const dir = carrier.team === "home" ? 1 : -1;
+      ball.x = carrier.x + dir * 0.012;
+      ball.y = carrier.y;
+      ball.vx = 0;
+      ball.vy = 0;
+      ball.isShot = false;
+    } else {
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+      ball.vx *= ball.isShot ? 0.985 : 0.955;
+      ball.vy *= ball.isShot ? 0.985 : 0.955;
+
+      if (ball.y < 0.04 || ball.y > 0.96) {
+        ball.vy *= -0.65;
+        ball.y = Math.max(0.04, Math.min(0.96, ball.y));
+      }
+
+      const inGoalMouth = ball.y >= 0.38 && ball.y <= 0.62;
+
+      if (ball.x >= 0.985) {
+        if (inGoalMouth && ball.isShot) {
+          gh++;
+          const scorer = ball.shooter;
+          const sName = scorer?.name?.split(" ").pop() || "Delantero";
+          newEvents.unshift(`⚽ ${currentMin}' - ¡GOOOL de ${sName}! (${m.homeName} ${gh}-${ga} ${m.awayName})`);
+          if (scorer) {
+            newScorers.push({ playerId: scorer.playerId, name: scorer.name, clubId: m.homeId, minute: currentMin });
+          }
+          kickoffReset(ball, homeAgents, awayAgents, "away");
+        } else {
+          const awayGk = awayAgents[0];
+          ball.x = awayGk.x; ball.y = awayGk.y;
+          ball.ownerTeam = "away"; ball.ownerId = awayGk.id;
+          ball.isShot = false; ball.stealCooldown = 12;
+        }
+      } else if (ball.x <= 0.015) {
+        if (inGoalMouth && ball.isShot) {
+          ga++;
+          const scorer = ball.shooter;
+          const sName = scorer?.name?.split(" ").pop() || "Delantero";
+          newEvents.unshift(`⚽ ${currentMin}' - ¡GOOOL de ${sName}! (${m.homeName} ${gh}-${ga} ${m.awayName})`);
+          if (scorer) {
+            newScorers.push({ playerId: scorer.playerId, name: scorer.name, clubId: m.awayId, minute: currentMin });
+          }
+          kickoffReset(ball, homeAgents, awayAgents, "home");
+        } else {
+          const homeGk = homeAgents[0];
+          ball.x = homeGk.x; ball.y = homeGk.y;
+          ball.ownerTeam = "home"; ball.ownerId = homeGk.id;
+          ball.isShot = false; ball.stealCooldown = 12;
+        }
+      }
+    }
+
+    const stepTeam = (agents, isHome, profile) => {
+      const teamKey = isHome ? "home" : "away";
+      const enemyAgents = isHome ? awayAgents : homeAgents;
+      const shiftX = isHome ? profile.blockShift : -profile.blockShift;
+      const teamHasBall = ball.ownerTeam === teamKey;
+
+      let chaser = null;
+      let bestDist = Infinity;
       agents.forEach(a => {
         if (a.posType !== "POR") {
           const d = Math.hypot(ball.x - a.x, ball.y - a.y);
-          if (d < minDist) { minDist = d; closestAgent = a; }
+          if (d < bestDist) { bestDist = d; chaser = a; }
         }
       });
 
       agents.forEach(a => {
-        // Desgaste progresivo durante los 90 minutos
         if (nextTick % 25 === 0) {
-          a.stamina = Math.max(25, (a.stamina ?? 100) - 0.6);
-        }
-        const fatigueMultiplier = 0.72 + ((a.stamina ?? 100) / 100) * 0.28;
-        const effectiveSpeed = a.speed * fatigueMultiplier;
-
-        if (a === closestAgent) {
-          const dist = Math.hypot(ball.x - a.x, ball.y - a.y);
-          a.vx = ((ball.x - a.x) / (dist || 1)) * effectiveSpeed;
-          a.vy = ((ball.y - a.y) / (dist || 1)) * effectiveSpeed;
-        } else if (a.posType === "POR") {
-          a.vy = (Math.max(0.35, Math.min(0.65, ball.y)) - a.y) * 0.1;
-          a.vx = (a.baseX - a.x) * 0.1;
-        } else {
-          const shiftX = (ball.x - 0.5) * 0.35;
-          const shiftY = (ball.y - 0.5) * 0.25;
-          const noiseX = Math.sin(nextTick * 0.05 + a.noiseOffset) * 0.015;
-          const noiseY = Math.cos(nextTick * 0.05 + a.noiseOffset) * 0.015;
-
-          const targetX = (a.baseX + tacticShift) + shiftX + noiseX;
-          const targetY = a.baseY + shiftY + noiseY;
-
-          a.vx = (targetX - a.x) * 0.04;
-          a.vy = (targetY - a.y) * 0.04;
+          const drain = profile.blockShift > 0.1 ? 0.72 : profile.blockShift < -0.1 ? 0.45 : 0.58;
+          a.stamina = Math.max(25, (a.stamina ?? 100) - drain);
         }
 
-        a.x += a.vx;
-        a.y += a.vy;
+        const fatigueMult = 0.78 + ((a.stamina ?? 100) / 100) * 0.22;
+        const speed = a.speed * fatigueMult;
 
-        const distToBall = Math.hypot(ball.x - a.x, ball.y - a.y);
-        const ballSpeed = Math.hypot(ball.vx, ball.vy);
+        if (a.posType === "POR") {
+          const homeGoalX = isHome ? 0.042 : 0.958;
+          const targetY = Math.max(0.39, Math.min(0.61, ball.y));
+          a.vx = (homeGoalX - a.x) * 0.16;
+          a.vy = (targetY - a.y) * (ball.isShot ? 0.24 : 0.14);
+          a.x += a.vx;
+          a.y += a.vy;
 
-        if (distToBall < 0.03 && ballSpeed < 0.04) {
-          const isAttackingZone = isHome ? (a.x > 0.7) : (a.x < 0.3);
-
-          if (isAttackingZone) {
-            const targetGoalX = isHome ? 1 : 0;
-            const angle = Math.atan2(0.5 - a.y, targetGoalX - a.x);
-            const power = 0.05 + Math.random() * 0.03;
-            ball.vx = Math.cos(angle) * power;
-            ball.vy = Math.sin(angle) * power;
-
-            // Probabilidad de gol influida por el OVR del rematador y la táctica
-            const ovrBonus = ((a.ovr || 78) - 75) * 0.004;
-            const tacticBonus = tactic === "Ofensivo" ? 0.025 : tactic === "Defensivo" ? -0.02 : 0;
-            const goalChance = Math.max(0.05, Math.min(0.24, 0.11 + ovrBonus + tacticBonus));
-
-            if (Math.random() < goalChance) {
-              const scorerLast = a.name.split(" ").pop();
-              if (isHome) {
-                gh++;
-                newEvents.unshift(`⚽ ${currentMin}' - ¡GOL de ${scorerLast} (${m.homeName})!`);
-                newScorers.push({ playerId: a.playerId, name: a.name, clubId: m.homeId, minute: currentMin });
-              } else {
-                ga++;
-                newEvents.unshift(`⚽ ${currentMin}' - ¡GOL de ${scorerLast} (${m.awayName})!`);
-                newScorers.push({ playerId: a.playerId, name: a.name, clubId: m.awayId, minute: currentMin });
+          if (!carrier && Math.hypot(ball.x - a.x, ball.y - a.y) < 0.032) {
+            const saveChance = 0.52 + ((a.ovr - 75) * 0.015);
+            if (!ball.isShot || Math.random() < saveChance) {
+              if (ball.isShot && Math.random() < 0.45) {
+                newEvents.unshift(`🧤 ${currentMin}' - ¡Gran parada de ${a.name.split(" ").pop()}!`);
               }
-              resetBall(ball, homeAgents, awayAgents);
-            } else if (Math.random() < 0.05) {
-              newEvents.unshift(`🧤 ${currentMin}' - Remate de ${a.name.split(" ").pop()} desviado por el portero.`);
-            }
-          } else {
-            if (Math.random() < 0.62) {
-              const teammates = agents.filter(t => t.id !== a.id && (isHome ? t.x > a.x : t.x < a.x));
-              if (teammates.length > 0) {
-                const target = teammates[Math.floor(Math.random() * teammates.length)];
-                const angle = Math.atan2(target.y - a.y, target.x - a.x);
-                const passPower = 0.03 + Math.random() * 0.02;
-                ball.vx = Math.cos(angle) * passPower;
-                ball.vy = Math.sin(angle) * passPower;
-              } else {
-                ball.vx = (isHome ? 1 : -1) * (0.03 + Math.random() * 0.02);
-                ball.vy = (Math.random() - 0.5) * 0.04;
-              }
-            } else {
-              const dirX = isHome ? 1 : -1;
-              const angle = Math.atan2((Math.random() - 0.5) * 0.5, dirX);
-              ball.vx = Math.cos(angle) * 0.02;
-              ball.vy = Math.sin(angle) * 0.02;
+              ball.ownerTeam = teamKey;
+              ball.ownerId = a.id;
+              ball.isShot = false;
+              ball.stealCooldown = 14;
+              a.decisionTimer = 10;
             }
           }
+          return;
         }
+
+        if (carrier && carrier.id === a.id && carrier.team === teamKey) {
+          const goalX = isHome ? 0.985 : 0.015;
+          const distGoal = Math.abs(goalX - a.x);
+          const dirX = isHome ? 1 : -1;
+
+          const centerPull = (0.5 - a.y) * 0.35;
+          a.vx = dirX * speed * 0.92;
+          a.vy = centerPull * speed;
+          a.x = Math.max(0.05, Math.min(0.95, a.x + a.vx));
+          a.y = Math.max(0.07, Math.min(0.93, a.y + a.vy));
+
+          a.decisionTimer = (a.decisionTimer || 0) - 1;
+          if (a.decisionTimer > 0) return;
+
+          const nearestEnemyDist = enemyAgents.reduce((min, e) => Math.min(min, Math.hypot(e.x - a.x, e.y - a.y)), 99);
+          const underPressure = nearestEnemyDist < 0.075;
+
+          if (distGoal <= profile.shootRange && Math.abs(a.y - 0.5) < 0.30) {
+            if (Math.random() < profile.shootAggression || distGoal < 0.17) {
+              const targetY = 0.5 + (Math.random() - 0.5) * 0.21;
+              const angle = Math.atan2(targetY - a.y, goalX - a.x);
+              const shotSpeed = 0.044 + ((a.ovr - 70) * 0.0006);
+
+              ball.ownerTeam = null;
+              ball.ownerId = null;
+              ball.isShot = true;
+              ball.shooter = a;
+              ball.vx = Math.cos(angle) * shotSpeed;
+              ball.vy = Math.sin(angle) * shotSpeed;
+              ball.stealCooldown = 6;
+
+              if (isHome) newStats.homeShots += 1;
+              else newStats.awayShots += 1;
+              return;
+            }
+          }
+
+          if (underPressure || Math.random() > profile.dribbleRatio) {
+            const forwardOptions = agents.filter(t =>
+              t.id !== a.id &&
+              t.posType !== "POR" &&
+              (isHome ? t.x > a.x + 0.03 : t.x < a.x - 0.03) &&
+              Math.hypot(t.x - a.x, t.y - a.y) < 0.42
+            );
+            const safeOptions = agents.filter(t =>
+              t.id !== a.id &&
+              Math.hypot(t.x - a.x, t.y - a.y) < 0.34
+            );
+
+            const candidates = forwardOptions.length > 0 ? forwardOptions : safeOptions;
+            if (candidates.length > 0) {
+              const target = candidates[Math.floor(Math.random() * candidates.length)];
+              const leadX = target.x + dirX * 0.025;
+              const angle = Math.atan2(target.y - a.y, leadX - a.x);
+
+              ball.ownerTeam = null;
+              ball.ownerId = null;
+              ball.isShot = false;
+              ball.vx = Math.cos(angle) * profile.passSpeed;
+              ball.vy = Math.sin(angle) * profile.passSpeed;
+              ball.stealCooldown = 5;
+              return;
+            }
+          }
+
+          a.decisionTimer = 9;
+          return;
+        }
+
+        const distBall = Math.hypot(ball.x - a.x, ball.y - a.y);
+
+        if (!carrier && a === chaser) {
+          a.vx = ((ball.x - a.x) / (distBall || 1)) * speed * 1.15;
+          a.vy = ((ball.y - a.y) / (distBall || 1)) * speed * 1.15;
+          a.x += a.vx;
+          a.y += a.vy;
+
+          if (Math.hypot(ball.x - a.x, ball.y - a.y) < 0.026 && ball.stealCooldown === 0) {
+            ball.ownerTeam = teamKey;
+            ball.ownerId = a.id;
+            ball.isShot = false;
+            a.decisionTimer = 8;
+          }
+          return;
+        }
+
+        if (carrier && !teamHasBall && a === chaser && distBall < profile.pressRange) {
+          a.vx = ((carrier.x - a.x) / (distBall || 1)) * speed * 1.08;
+          a.vy = ((carrier.y - a.y) / (distBall || 1)) * speed * 1.08;
+          a.x += a.vx;
+          a.y += a.vy;
+
+          if (Math.hypot(carrier.x - a.x, carrier.y - a.y) < 0.024 && ball.stealCooldown === 0) {
+            const tackleProb = 0.22 + ((a.ovr - carrier.ovr) * 0.012);
+            if (Math.random() < Math.max(0.08, Math.min(0.45, tackleProb))) {
+              ball.ownerTeam = teamKey;
+              ball.ownerId = a.id;
+              ball.stealCooldown = 12;
+              a.decisionTimer = 9;
+            } else {
+              ball.stealCooldown = 8;
+            }
+          }
+          return;
+        }
+
+        const ballShiftX = (ball.x - 0.5) * 0.24;
+        const ballShiftY = (ball.y - 0.5) * 0.18;
+        const supportAdvance = (teamHasBall && (a.posType === "DEL" || a.posType === "MED"))
+          ? (isHome ? 0.06 : -0.06)
+          : 0;
+        const microMoveX = Math.sin(nextTick * 0.04 + a.noiseOffset) * 0.015;
+        const microMoveY = Math.cos(nextTick * 0.04 + a.noiseOffset) * 0.015;
+
+        const targetX = Math.max(0.08, Math.min(0.92, a.baseX + shiftX + ballShiftX + supportAdvance + microMoveX));
+        const targetY = Math.max(0.08, Math.min(0.92, a.baseY + ballShiftY + microMoveY));
+
+        a.vx = (targetX - a.x) * 0.06;
+        a.vy = (targetY - a.y) * 0.06;
+        a.x += a.vx;
+        a.y += a.vy;
       });
     };
 
-    updateTeam(homeAgents, true, homeTactic);
-    updateTeam(awayAgents, false, awayTactic);
+    stepTeam(homeAgents, true, homeProfile);
+    stepTeam(awayAgents, false, awayProfile);
 
     const isFinished = currentMin >= 90;
     if (isFinished) {
-      newEvents.unshift(`🏁 90' - Final del partido: ${m.homeName} ${gh} - ${ga} ${m.awayName}`);
+      newEvents.unshift(`🏁 90' - Final del encuentro: ${m.homeName} ${gh} - ${ga} ${m.awayName}`);
       clearInterval(matchInterval);
     }
 
@@ -230,6 +417,7 @@ export function startLiveMatch(homeId, awayId, onFinish) {
         tick: nextTick,
         gh,
         ga,
+        stats: newStats,
         ball,
         homeAgents,
         awayAgents,
@@ -243,7 +431,26 @@ export function startLiveMatch(homeId, awayId, onFinish) {
   }, 50);
 }
 
-// Realizar sustitución en vivo en el equipo del usuario
+function kickoffReset(ball, homeAgents, awayAgents, kickoffTeam) {
+  (homeAgents || []).forEach(a => { a.x = a.baseX; a.y = a.baseY; a.vx = 0; a.vy = 0; });
+  (awayAgents || []).forEach(a => { a.x = a.baseX; a.y = a.baseY; a.vx = 0; a.vy = 0; });
+
+  const takers = kickoffTeam === "home" ? homeAgents : awayAgents;
+  const taker = takers[9] || takers[6] || takers[1];
+  taker.x = 0.5;
+  taker.y = 0.5;
+
+  ball.x = 0.5;
+  ball.y = 0.5;
+  ball.vx = 0;
+  ball.vy = 0;
+  ball.ownerTeam = kickoffTeam;
+  ball.ownerId = taker.id;
+  ball.isShot = false;
+  ball.shooter = null;
+  ball.stealCooldown = 14;
+}
+
 export function makeLiveSubstitution(outAgentIndex, inPlayerId) {
   const state = store.get();
   const m = state.liveMatch;
@@ -263,7 +470,7 @@ export function makeLiveSubstitution(outAgentIndex, inPlayerId) {
     name: inPlayer.name,
     ovr: inPlayer.ovr,
     stamina: inPlayer.stamina ?? 100,
-    speed: (0.0078 + Math.random() * 0.0025) * (0.85 + ((inPlayer.ovr - 70) * 0.012))
+    speed: (0.0068 + Math.random() * 0.0014) * (0.90 + ((inPlayer.ovr - 70) * 0.011))
   };
 
   agents[outAgentIndex] = newAgent;
@@ -283,16 +490,14 @@ export function makeLiveSubstitution(outAgentIndex, inPlayerId) {
 export function setTactic(isHome, tactic) {
   store.update(["liveMatch"], draft => {
     if (draft.liveMatch) {
-      if (isHome) draft.liveMatch.homeTactic = tactic;
-      else draft.liveMatch.awayTactic = tactic;
+      const prev = isHome ? draft.liveMatch.homeTactic : draft.liveMatch.awayTactic;
+      if (prev !== tactic) {
+        if (isHome) draft.liveMatch.homeTactic = tactic;
+        else draft.liveMatch.awayTactic = tactic;
+        draft.liveMatch.events.unshift(`📋 ${draft.liveMatch.minute}' - Orden táctica: ${tactic}`);
+      }
     }
   });
-}
-
-function resetBall(ball, homeAgents, awayAgents) {
-  ball.x = 0.5; ball.y = 0.5; ball.vx = 0; ball.vy = 0;
-  (homeAgents || []).forEach(a => { a.x = a.baseX; a.y = a.baseY; a.vx = 0; a.vy = 0; });
-  (awayAgents || []).forEach(a => { a.x = a.baseX; a.y = a.baseY; a.vx = 0; a.vy = 0; });
 }
 
 export function togglePauseMatch() {
@@ -304,42 +509,104 @@ export function drawPitch(canvas, liveMatch) {
   const bxVal = liveMatch.ball?.x ?? 0.5;
   const byVal = liveMatch.ball?.y ?? 0.5;
   const ctx = canvas.getContext("2d");
-  const w = canvas.width; const h = canvas.height;
+  const w = canvas.width;
+  const h = canvas.height;
+  const padX = 28;
+  const padY = 20;
+  const fieldW = w - padX * 2;
+  const fieldH = h - padY * 2;
 
-  ctx.fillStyle = "#166534"; ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = "#15803d";
-  for (let i = 0; i < 12; i += 2) ctx.fillRect((w / 12) * i, 0, w / 12, h);
+  ctx.fillStyle = "#14532d";
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = "#166534";
+  for (let i = 0; i < 12; i += 2) {
+    ctx.fillRect(padX + (fieldW / 12) * i, padY, fieldW / 12, fieldH);
+  }
 
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.6)"; ctx.lineWidth = 2;
-  ctx.strokeRect(18, 18, w - 36, h - 36);
-  ctx.beginPath(); ctx.moveTo(w / 2, 18); ctx.lineTo(w / 2, h - 18); ctx.stroke();
-  ctx.beginPath(); ctx.arc(w / 2, h / 2, 40, 0, Math.PI * 2); ctx.stroke();
-  ctx.strokeRect(18, h / 2 - 65, 50, 130); ctx.strokeRect(w - 68, h / 2 - 65, 50, 130);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(padX, padY, fieldW, fieldH);
 
-  const drawTeamAgents = (agents, colors) => {
+  ctx.beginPath();
+  ctx.moveTo(w / 2, padY);
+  ctx.lineTo(w / 2, h - padY);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(w / 2, h / 2, 42, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeRect(padX, h / 2 - 75, 58, 150);
+  ctx.strokeRect(w - padX - 58, h / 2 - 75, 58, 150);
+  ctx.strokeRect(padX, h / 2 - 38, 22, 76);
+  ctx.strokeRect(w - padX - 22, h / 2 - 38, 22, 76);
+
+  const goalH = 68;
+  const goalDepth = 16;
+  const goalTop = h / 2 - goalH / 2;
+
+  const drawGoalNet = (gx, gw) => {
+    ctx.fillStyle = "rgba(255, 255, 255, 0.16)";
+    ctx.fillRect(gx, goalTop, gw, goalH);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(gx, goalTop, gw, goalH);
+
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+    ctx.lineWidth = 1;
+    for (let y = goalTop + 8; y < goalTop + goalH; y += 8) {
+      ctx.beginPath();
+      ctx.moveTo(gx, y);
+      ctx.lineTo(gx + gw, y);
+      ctx.stroke();
+    }
+  };
+
+  drawGoalNet(padX - goalDepth, goalDepth);
+  drawGoalNet(w - padX, goalDepth);
+
+  const drawTeamAgents = (agents, colors, isHome) => {
     if (!Array.isArray(agents)) return;
     agents.forEach(a => {
-      const px = 18 + a.x * (w - 36);
-      const py = 18 + a.y * (h - 36);
-      ctx.fillStyle = colors?.[0] || "#2563eb";
-      ctx.beginPath(); ctx.arc(px, py, 7.5, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = colors?.[1] || "#ffffff"; ctx.lineWidth = 2; ctx.stroke();
+      const px = padX + a.x * fieldW;
+      const py = padY + a.y * fieldH;
+      const isGK = a.posType === "POR";
 
-      // Apellido sutil bajo el jugador
+      const fill = isGK ? (isHome ? "#facc15" : "#22d3ee") : (colors?.[0] || "#2563eb");
+      const stroke = isGK ? "#090d16" : (colors?.[1] || "#ffffff");
+
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      ctx.arc(px, py, isGK ? 8.5 : 7.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
+
       if (a.name) {
-        ctx.fillStyle = "rgba(255,255,255,0.85)";
-        ctx.font = "9px sans-serif";
+        ctx.fillStyle = "rgba(255,255,255,0.9)";
+        ctx.font = "bold 9px sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText(a.name.split(" ").pop(), px, py + 15);
+        ctx.fillText(a.name.split(" ").pop(), px, py + 16);
       }
     });
   };
 
-  drawTeamAgents(liveMatch.homeAgents, liveMatch.homeColors);
-  drawTeamAgents(liveMatch.awayAgents, liveMatch.awayColors);
+  drawTeamAgents(liveMatch.homeAgents, liveMatch.homeColors, true);
+  drawTeamAgents(liveMatch.awayAgents, liveMatch.awayColors, false);
 
-  const bx = 18 + bxVal * (w - 36); const by = 18 + byVal * (h - 36);
-  ctx.fillStyle = "rgba(0,0,0,0.4)"; ctx.beginPath(); ctx.arc(bx + 2, by + 3, 4, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.arc(bx, by, 5, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = "#000000"; ctx.lineWidth = 1; ctx.stroke();
+  const bx = padX + bxVal * fieldW;
+  const by = padY + byVal * fieldH;
+  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  ctx.beginPath();
+  ctx.arc(bx + 2, by + 3, 4.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = liveMatch.ball?.isShot ? "#fde047" : "#ffffff";
+  ctx.beginPath();
+  ctx.arc(bx, by, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#000000";
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
 }

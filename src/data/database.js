@@ -1,31 +1,20 @@
-const FIRST_NAMES = [
-  "Carlos", "Alejandro", "Javier", "Miguel", "David", "Daniel", "Pablo", "Álvaro",
-  "Adrián", "Diego", "Sergio", "Lucas", "Mateo", "Hugo", "Martín", "Leo",
-  "Nicolás", "Marcos", "Iker", "Unai", "Gavi", "Pedri", "Rodrigo", "Ferran",
-  "Kylian", "Vinicius", "Jude", "Federico", "Luka", "Toni", "Antoine", "Jan"
-];
-
-const LAST_NAMES = [
-  "García", "Rodríguez", "González", "Fernández", "López", "Martínez", "Sánchez", "Pérez",
-  "Gómez", "Martín", "Jiménez", "Ruiz", "Hernández", "Díaz", "Moreno", "Muñoz",
-  "Álvarez", "Romero", "Alonso", "Gutiérrez", "Navarro", "Torres", "Domínguez", "Vázquez",
-  "Ramos", "Gil", "Ramírez", "Serrano", "Blanco", "Molina", "Morales", "Suárez"
-];
-
 const CLUB_TEMPLATES = [
-  { id: "c1", name: "Real Madrid JS", ovr: 87, budget: 65000000, colors: ["#1e293b", "#f8fafc"] },
-  { id: "c2", name: "FC Barcelona DOM", ovr: 86, budget: 55000000, colors: ["#1d4ed8", "#b91c1c"] },
-  { id: "c3", name: "Atlético Canvas", ovr: 84, budget: 45000000, colors: ["#dc2626", "#f8fafc"] },
-  { id: "c4", name: "Real Sociedad Vite", ovr: 81, budget: 32000000, colors: ["#0284c7", "#f8fafc"] },
-  { id: "c5", name: "Athletic Node", ovr: 80, budget: 30000000, colors: ["#b91c1c", "#111827"] },
-  { id: "c6", name: "Villarreal ES6", ovr: 79, budget: 28000000, colors: ["#eab308", "#1e3a8a"] },
-  { id: "c7", name: "Real Betis Async", ovr: 79, budget: 26000000, colors: ["#15803d", "#f8fafc"] },
-  { id: "c8", name: "Sevilla Storage", ovr: 78, budget: 25000000, colors: ["#ef4444", "#f8fafc"] },
-  { id: "c9", name: "Valencia Module", ovr: 77, budget: 22000000, colors: ["#f97316", "#111827"] },
-  { id: "c10", name: "Girona Vector", ovr: 78, budget: 24000000, colors: ["#e11d48", "#f8fafc"] },
-  { id: "c11", name: "Celta State", ovr: 75, budget: 18000000, colors: ["#38bdf8", "#f8fafc"] },
-  { id: "c12", name: "Osasuna Engine", ovr: 75, budget: 16000000, colors: ["#991b1b", "#1e3a8a"] }
+  { id: "c1", name: "Real Madrid CF", ovr: 89, budget: 120000000, colors: ["#ffffff", "#f59e0b"] },
+  { id: "c2", name: "FC Barcelona", ovr: 87, budget: 85000000, colors: ["#a50044", "#004d98"] },
+  { id: "c3", name: "Atlético Madrid", ovr: 85, budget: 75000000, colors: ["#cb3524", "#ffffff"] },
+  { id: "c4", name: "Athletic Club", ovr: 82, budget: 55000000, colors: ["#ee2523", "#ffffff"] },
+  { id: "c5", name: "Real Sociedad", ovr: 82, budget: 52000000, colors: ["#0067b1", "#ffffff"] },
+  { id: "c6", name: "Villarreal CF", ovr: 81, budget: 48000000, colors: ["#ffe667", "#005187"] },
+  { id: "c7", name: "Real Betis", ovr: 80, budget: 45000000, colors: ["#0bb363", "#ffffff"] },
+  { id: "c8", name: "Sevilla FC", ovr: 79, budget: 42000000, colors: ["#d4021d", "#ffffff"] },
+  { id: "c9", name: "Valencia CF", ovr: 78, budget: 38000000, colors: ["#ffffff", "#000000"] },
+  { id: "c10", name: "Girona FC", ovr: 79, budget: 40000000, colors: ["#e2001a", "#ffffff"] },
+  { id: "c11", name: "CA Osasuna", ovr: 77, budget: 32000000, colors: ["#d91a21", "#0a1f44"] },
+  { id: "c12", name: "Celta de Vigo", ovr: 77, budget: 34000000, colors: ["#8ac3ee", "#ffffff"] }
 ];
+
+const FIRST_NAMES = ["Carlos", "Mateo", "Lucas", "Hugo", "Martín", "Daniel", "Pablo", "Alejandro", "Adrián", "Álvaro", "Diego", "Javier", "Iker", "Nico", "Gavi", "Pedri", "Lamine", "Julián", "Rodrigo", "Fede", "Vinícius", "Jude", "Brahim", "Mikel", "Unai", "Oihan", "Iñaki", "Alex", "Ferran", "Pau"];
+const LAST_NAMES = ["García", "Rodríguez", "González", "Fernández", "López", "Martínez", "Sánchez", "Pérez", "Gómez", "Martín", "Jiménez", "Ruiz", "Hernández", "Díaz", "Moreno", "Muñoz", "Álvarez", "Romero", "Alonso", "Gutiérrez", "Navarro", "Torres", "Domínguez", "Vázquez", "Ramos", "Gil", "Ramírez", "Serrano", "Blanco", "Molina"];
 
 const SQUAD_BLUEPRINT = [
   "POR", "POR",
@@ -34,49 +23,58 @@ const SQUAD_BLUEPRINT = [
   "DEL", "DEL", "DEL", "DEL"
 ];
 
-function randInt(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+function randomName(usedNames) {
+  let name = "";
+  do {
+    const fn = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
+    const ln = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
+    name = `${fn} ${ln}`;
+  } while (usedNames.has(name));
+  usedNames.add(name);
+  return name;
 }
 
-export function generateInitialDatabase() {
+export function createInitialDatabase() {
   const clubs = {};
   const players = {};
   const usedNames = new Set();
-  let pCounter = 1;
 
   CLUB_TEMPLATES.forEach(tpl => {
     clubs[tpl.id] = {
-      id: tpl.id,
-      name: tpl.name,
-      ovr: tpl.ovr,
-      budget: tpl.budget,
-      colors: tpl.colors,
+      ...tpl,
       formation: "4-3-3",
-      tactics: { mentality: 55, tempo: 55, press: 50 }
+      tactics: { mentality: 55, tempo: 55, press: 55 }
     };
 
+    let startersAssigned = 0;
     SQUAD_BLUEPRINT.forEach((pos, idx) => {
-      let fullName = "";
-      do {
-        fullName = `${FIRST_NAMES[randInt(0, FIRST_NAMES.length - 1)]} ${LAST_NAMES[randInt(0, LAST_NAMES.length - 1)]}`;
-      } while (usedNames.has(fullName));
-      usedNames.add(fullName);
+      const pid = `${tpl.id}_p${idx + 1}`;
+      const isStarter = startersAssigned < 11 && (
+        (pos === "POR" && idx === 0) ||
+        (pos === "DEF" && idx <= 5) ||
+        (pos === "MED" && idx <= 9) ||
+        (pos === "DEL" && idx <= 14)
+      );
+      if (isStarter) startersAssigned++;
 
-      const isStarter = idx === 0 || (idx >= 2 && idx <= 5) || (idx >= 7 && idx <= 9) || (idx >= 12 && idx <= 14);
-      const ovr = Math.max(66, Math.min(92, tpl.ovr + randInt(-4, 4)));
-      const age = randInt(18, 33);
-      const pid = `p_${pCounter++}`;
+      const variance = isStarter ? Math.floor(Math.random() * 5) - 1 : Math.floor(Math.random() * 6) - 5;
+      const ovr = Math.max(68, Math.min(93, tpl.ovr + variance));
+      const age = Math.floor(Math.random() * 16) + 18;
+      const contractYears = Math.floor(Math.random() * 4) + 1;
 
       players[pid] = {
         id: pid,
-        name: fullName,
         clubId: tpl.id,
+        name: randomName(usedNames),
         pos,
         age,
         ovr,
         stamina: 100,
-        starter: isStarter,
-        wage: Math.round(ovr * 1150)
+        morale: 85,
+        goals: 0,
+        contractYears,
+        wage: Math.round(ovr * 1150),
+        starter: isStarter
       };
     });
   });
@@ -84,4 +82,4 @@ export function generateInitialDatabase() {
   return { clubs, players };
 }
 
-export const buildInitialWorld = generateInitialDatabase;
+export const generateInitialDatabase = createInitialDatabase;
