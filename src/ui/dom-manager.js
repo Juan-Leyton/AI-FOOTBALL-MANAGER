@@ -106,7 +106,12 @@ export function initUI() {
   if (!root) return;
 
   const s = store.get();
-  if (!s.clubs || Object.keys(s.clubs).length < 20) {
+  const hasValidClubs =
+    s.clubs &&
+    Object.keys(s.clubs).length >= 20 &&
+    Object.values(s.clubs).some(c => c && c.leagueId);
+
+  if (!hasValidClubs) {
     const world = buildWorldDatabase();
     store.update(["clubs", "players", "liveMatch", "competitions", "activeCompId"], draft => {
       draft.clubs = world.clubs;
@@ -129,7 +134,7 @@ export function initUI() {
   injectCustomLegends();
   ensureCareerHooksState();
 
-  if (s.onlineRoomCode) {
+  if (store.get().onlineRoomCode) {
     startOnlineAutoSync();
   }
 
@@ -180,7 +185,9 @@ function renderJerseySvg(primaryColor, secondaryColor, number, isOutOfPos = fals
         <path d="M16 8 L3 18 L10 29 L18 23 L18 52 L46 52 L46 23 L54 29 L61 18 L48 8 L39 4 C36 9 28 9 25 4 Z"
               fill="none" stroke="${strokeCol}" stroke-width="2.2" stroke-linejoin="round"/>
         <path d="M25 4 C28 10 36 10 39 4" fill="none" stroke="${strokeCol}" stroke-width="2.2"/>
-        <text x="32" y="37" text-anchor="middle" fill="${numCol}" font-family="system-ui, sans-serif" font-weight="900" font-size="18" stroke="#090d16" stroke-width="0.6">${number}</text>
+        <text x="32" y="37" text-anchor="middle" fill="${numCol}" font-family="system-ui, sans-serif" font-weight="900" font-size="18" stroke="#090d16" stroke-width="0.9" paint-order="stroke">
+          ${number}
+        </text>
       </svg>
     </div>
   `;
@@ -189,8 +196,8 @@ function renderJerseySvg(primaryColor, secondaryColor, number, isOutOfPos = fals
 function renderMiniBar(value, color) {
   const pct = Math.max(5, Math.min(100, Math.round(value)));
   return `
-    <div style="display:flex; align-items:center; gap:7px;">
-      <div style="flex:1; min-width:46px; height:6px; background:rgba(15,23,42,0.9); border-radius:99px; overflow:hidden; border:1px solid rgba(255,255,255,0.06);">
+    <div style="display: flex; align-items:center; gap:7px;">
+      <div style="flex: 1; min-width:46px; height:6px; background:rgba(15,23,42,0.9); border-radius:99px; overflow:hidden; border:1px solid rgba(255,255,255,0.06);">
         <div style="width:${pct}%; height:100%; background:${color}; border-radius:99px; transition:width 0.25s ease;"></div>
       </div>
       <span style="font-size:11px; font-weight:700; color:${color}; min-width:30px;">${pct}%</span>
@@ -295,7 +302,9 @@ function render() {
                 </button>
               `}
 
-              <div style="font-size:10px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px; padding:0 4px;">👥 Mánagers (${state.mpManagers.length})</div>
+              <div style="font-size:10px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px; padding:0 4px;">
+                Mánagers (${state.mpManagers.length})
+              </div>
               <div style="display:grid; gap:4px; margin-bottom:${isOnline ? "2px" : "7px"};">
                 ${state.mpManagers.map((m, i) => {
                   const mClub = state.clubs[m.clubId];
@@ -312,20 +321,19 @@ function render() {
                   `;
                 }).join("")}
               </div>
-
               ${!isOnline ? `
                 <button id="btn-next-manager-turn" class="fm-btn fm-btn-primary" style="width:100%; padding:6px 8px; font-size:11px;">
-                  🔄 Pasar Turno → ${nextMgr?.name || ""}
+                  Pasar Turno → ${nextMgr?.name || ""}
                 </button>
               ` : ""}
             </div>
           ` : ""}
 
           <nav class="fm-sidebar-nav">
-            ${renderTabBtn("home", "🏟️ Centro del Club", activeTab, userClub.colors[0], mp.skillPoints || 0)}
+            ${renderTabBtn("home", "🏠 Centro del Club", activeTab, userClub.colors[0], mp.skillPoints || 0)}
             ${renderTabBtn("squad", "👕 Plantilla", activeTab, userClub.colors[0])}
             ${renderTabBtn("tactics", "📋 Pizarra Táctica", activeTab, userClub.colors[0])}
-            ${renderTabBtn("staff", "🎓 Academia y Staff", activeTab, userClub.colors[0])}
+            ${renderTabBtn("staff", "🏗️ Academia y Staff", activeTab, userClub.colors[0])}
             ${renderTabBtn("transfers", "💼 Mercado Global", activeTab, userClub.colors[0])}
             ${renderTabBtn("inbox", "📩 Bandeja IA", activeTab, userClub.colors[0], unreadCount)}
             ${renderTabBtn("table", "🏆 Competiciones", activeTab, userClub.colors[0])}
@@ -367,14 +375,14 @@ function render() {
               </div>
             </div>
             <div class="fm-kpi-pill">
-              <span>📊</span>
+              <span>⭐</span>
               <div>
                 <small>MEDIA CLUB</small><br>
                 <b>OVR ${userClub.ovr}</b>
               </div>
             </div>
             <div class="fm-kpi-pill">
-              <span>⭐</span>
+              <span>🎖️</span>
               <div>
                 <small>NIVEL ${mp.level}</small><br>
                 <b style="color: #60a5fa;">${mp.xp}/${mp.nextLevelXp} XP</b>
@@ -388,6 +396,7 @@ function render() {
               </div>
             </div>
           </div>
+
           <div style="font-size: 12px; color: var(--text-muted); font-weight: 700;">
             WORLD FOOTBALL MANAGER <span style="color: #3b82f6;">2026</span>
           </div>
@@ -425,7 +434,9 @@ function render() {
 function updateLiveMatchDynamicParts(state) {
   const m = state.liveMatch;
   if (!m) return;
+
   checkAndTriggerLiveGoalBanner(m, state.clubs);
+
   const isUserHome = m.homeId === state.userClubId;
 
   const scoreEl = document.getElementById("live-score-text");
@@ -516,7 +527,7 @@ function renderHomeTab(state) {
           </button>
         ` : pendingMgrs[0] ? `
           <button class="btn-switch-manager fm-btn fm-btn-primary" data-midx="${state.mpManagers.findIndex(x => x.id === pendingMgrs[0].id)}">
-            🔄 Pasar Turno a ${pendingMgrs[0].name}
+            Pasar Turno a ${pendingMgrs[0].name}
           </button>
         ` : ""}
       </div>
@@ -545,9 +556,9 @@ function renderHomeTab(state) {
     matchCard = `
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
         <div style="display:flex; flex-wrap:wrap; gap:6px;">
-          ${isPvpDuel ? `<span style="display:inline-block; background:linear-gradient(90deg, #ef4444, #f97316); color:#fff; font-weight:900; font-size:11px; padding:3px 10px; border-radius:6px; letter-spacing:0.04em;">🔥 DUELO PvP: ${homeMgr.name} vs ${awayMgr.name}</span>` : ""}
-          ${isCont ? `<span style="display:inline-block; background:linear-gradient(90deg, #2563eb, #3b82f6); color:#fff; font-weight:800; font-size:11px; padding:3px 10px; border-radius:6px; letter-spacing:0.04em;">🌍 COPA CONTINENTAL ÉLITE</span>` : ""}
-          ${isCup ? `<span style="display:inline-block; background:linear-gradient(90deg, #d97706, #f59e0b); color:#000; font-weight:800; font-size:11px; padding:3px 10px; border-radius:6px; letter-spacing:0.04em;">🏆 ELIMINATORIA DE COPA</span>` : ""}
+          ${isPvpDuel ? `<span style="display:inline-block; background: linear-gradient(90deg, #ef4444, #f97316); color:#fff; font-weight:900; font-size:11px; padding:3px 10px; border-radius:6px; letter-spacing:0.04em;">⚔️ DUELO PvP: ${homeMgr.name} vs ${awayMgr.name}</span>` : ""}
+          ${isCont ? `<span style="display:inline-block; background: linear-gradient(90deg, #2563eb, #3b82f6); color:#fff; font-weight:800; font-size:11px; padding:3px 10px; border-radius:6px; letter-spacing:0.04em;">🌍 COPA CONTINENTAL ÉLITE</span>` : ""}
+          ${isCup ? `<span style="display:inline-block; background: linear-gradient(90deg, #d97706, #f59e0b); color:#000; font-weight:800; font-size:11px; padding:3px 10px; border-radius:6px; letter-spacing:0.04em;">🏆 ELIMINATORIA DE COPA</span>` : ""}
         </div>
         <span style="font-size:11.5px; color:var(--text-muted); font-weight:700;">
           🏟️ ${attInfo.stadiumName} • <b style="color:#e2e8f0;">${attInfo.attendance.toLocaleString()}</b> esp. (${attInfo.fillPct}%)
@@ -557,7 +568,7 @@ function renderHomeTab(state) {
         <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;">
           ${renderClubBadge(home, 44)}
           <b style="font-size: 14px;">${home.name}</b>
-          <span style="font-size: 11px; color: var(--text-muted);">${homeMgr ? `👤 ${homeMgr.name}` : `${home.flag || ""} `}OVR ${home.ovr}</span>
+          <span style="font-size: 11px; color: var(--text-muted);">${homeMgr ? `👤 ${homeMgr.name}` : `${home.flag || ""}`} • OVR ${home.ovr}</span>
         </div>
         <div style="text-align: center;">
           <div style="font-size: 13px; font-weight: 900; color: var(--text-muted); letter-spacing: 0.14em;">VS</div>
@@ -565,7 +576,7 @@ function renderHomeTab(state) {
         <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;">
           ${renderClubBadge(away, 44)}
           <b style="font-size: 14px;">${away.name}</b>
-          <span style="font-size: 11px; color: var(--text-muted);">${awayMgr ? `👤 ${awayMgr.name}` : `${away.flag || ""} `}OVR ${away.ovr}</span>
+          <span style="font-size: 11px; color: var(--text-muted);">${awayMgr ? `👤 ${awayMgr.name}` : `${away.flag || ""}`} • OVR ${away.ovr}</span>
         </div>
       </div>
       <div style="display:grid; grid-template-columns: 1.4fr 1fr; gap:8px; margin-top:10px;">
@@ -615,6 +626,7 @@ function renderHomeTab(state) {
           <span>Enfermería / Sancionados:</span>
           <b style="color: ${unavailableCount > 0 ? '#f59e0b' : 'var(--text-muted)'};">${unavailableCount} ${unavailableCount === 1 ? 'baja' : 'bajas'}</b>
         </div>
+
         <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--panel-border);">
           <small style="color: var(--text-muted); display: block; margin-bottom: 8px; font-weight: 700; text-transform: uppercase;">Vitrina de Trofeos (${trophies.length})</small>
           ${trophies.length === 0 ? `<small style="color: #64748b;">Aún no has conquistado títulos oficiales.</small>` : `
@@ -640,7 +652,7 @@ function renderHomeTab(state) {
                   <div style="font-size:13px; font-weight:800; color:${obj.completed ? '#34d399' : '#f8fafc'};">
                     ${obj.completed ? '✅' : '📌'} ${obj.title}
                   </div>
-                  <small style="color:var(--text-muted);">Recompensa: <b style="color:#34d399;">+${(obj.rewardCash / 1e6).toFixed(1)} M€</b> • <b style="color:#60a5fa;">+${obj.rewardXp} XP</b></small>
+                  <small style="color:var(--text-muted);">Recompensa: <b style="color:#34d399;">+${(obj.rewardCash / 1e6).toFixed(1)}M€</b> • <b style="color:#60a5fa;">+${obj.rewardXp} XP</b></small>
                 </div>
                 <span style="font-size:11.5px; font-weight:800; padding:4px 9px; border-radius:7px; background:${obj.completed ? 'rgba(16,185,129,0.2)' : 'rgba(30,41,59,0.9)'}; color:${obj.completed ? '#34d399' : '#cbd5e1'}; white-space:nowrap;">
                   ${obj.completed ? 'Cumplido' : progText}
@@ -653,7 +665,7 @@ function renderHomeTab(state) {
 
       <div class="fm-card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <h3 style="margin:0;">🧠 Perks de Mánager (Nivel ${mp.level})</h3>
+          <h3 style="margin:0;">🎖️ Perks de Mánager (Nivel ${mp.level})</h3>
           <span style="background:${(mp.skillPoints || 0) > 0 ? 'rgba(250,204,21,0.22)' : 'rgba(30,41,59,0.85)'}; color:${(mp.skillPoints || 0) > 0 ? '#fde047' : 'var(--text-muted)'}; border:1px solid ${(mp.skillPoints || 0) > 0 ? 'rgba(250,204,21,0.5)' : 'var(--panel-border)'}; padding:3px 10px; border-radius:99px; font-size:11.5px; font-weight:800;">
             ${mp.skillPoints || 0} Puntos disp.
           </span>
@@ -689,7 +701,6 @@ function renderSquadTab(state) {
   const squad = Object.values(state.players || {})
     .filter(p => p.clubId === state.userClubId)
     .sort((a, b) => (b.starter === a.starter ? b.ovr - a.ovr : b.starter ? 1 : -1));
-
   const startersCount = squad.filter(p => p.starter && !isPlayerUnavailable(p)).length;
 
   return `
@@ -708,11 +719,12 @@ function renderSquadTab(state) {
           </span>
         </div>
       </div>
+
       <div style="overflow-x:auto;">
         <table class="fm-table">
           <thead>
             <tr>
-              <th>Rol/Estado</th>
+              <th>Rol / Estado</th>
               <th>Jugador y Atributos</th>
               <th>Pos</th>
               <th>OVR</th>
@@ -751,7 +763,7 @@ function renderSquadTab(state) {
                     `}
                   </td>
                   <td>
-                    <span class="btn-inspect-player" data-pid="${p.id}" style="cursor:pointer; font-weight:800; text-decoration:underline; text-decoration-color:rgba(255,255,255,0.28); text-underline-offset:3px;">${p.name}</span>
+                    <span class="btn-inspect-player" data-pid="${p.id}" style="cursor:pointer; font-weight:800; text-decoration:underline; text-decoration-color:rgba(96,165,250,0.5);">${p.name}</span>
                     ${p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">★ LEYENDA</span>` : p.isRegen ? `<span style="background:rgba(16,185,129,0.22); color:#34d399; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">REGEN</span>` : p.isYouth ? `<span style="background:rgba(59,130,246,0.25); color:#60a5fa; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CANTERA</span>` : ""}
                     ${p.isLoaned ? `<span style="background:rgba(168,85,247,0.25); color:#d8b4fe; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CEDIDO</span>` : ""}
                     <small style="color: var(--text-muted);">(${p.age}a)</small>
@@ -767,7 +779,7 @@ function renderSquadTab(state) {
                   <td>${renderOvrBadge(p.ovr)}</td>
                   <td style="min-width:95px;">${renderMiniBar(morale, moraleColor)}</td>
                   <td style="min-width:95px;">${renderMiniBar(p.stamina, stamColor)}</td>
-                  <td style="color: ${contractColor}; font-weight: 700; white-space:nowrap;">${p.isLoaned ? "Cesión 1a" : `${years} ${years === 1 ? "año!" : "años"}`}</td>
+                  <td style="color: ${contractColor}; font-weight: 700; white-space:nowrap;">${p.isLoaned ? "Cesión 1a" : `${years} ${years === 1 ? "año ⚠️" : "años"}`}</td>
                   <td style="display: flex; gap: 6px; white-space:nowrap;">
                     ${!p.isLoaned && years < 4 ? `
                       <button class="btn-renew-contract fm-btn fm-btn-primary" data-pid="${p.id}" style="padding: 5px 9px; font-size: 11px;">
@@ -803,10 +815,10 @@ function renderStaffTab(state) {
     <div class="fm-card">
       <div style="display: flex; flex-wrap:wrap; justify-content: space-between; align-items: center; gap:8px; margin-bottom: 12px;">
         <div>
-          <h3 style="margin: 0;">🌍 Red de Ojeadores Juveniles y Academia Sub-18 (${youthAcademy.length}/8)</h3>
+          <h3 style="margin: 0;">🔭 Red de Ojeadores Juveniles y Academia Sub-18 (${youthAcademy.length}/8)</h3>
           <small style="color:var(--text-muted);">Envía ojeadores a países clave, ficha promesas con alto Potencial (POT) y súbelas al primer equipo</small>
         </div>
-        <span style="background:rgba(59,130,246,0.2); border:1px solid rgba(59,130,246,0.4); padding:4px 10px; border-radius:8px; font-size: 12px; color: #60a5fa; font-weight: 800;">Academia Nvl ${staff.youth || 1}</span>
+        <span style="background:rgba(59,130,246,0.2); border:1px solid rgba(59,130,246,0.4); padding:4px 10px; border-radius:8px; font-size:12px; color:#60a5fa; font-weight:800;">Academia Nvl ${staff.youth || 1}</span>
       </div>
 
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(175px, 1fr)); gap:8px; margin-bottom:16px;">
@@ -874,8 +886,8 @@ function renderStaffTab(state) {
 
       <div style="padding-top:10px; border-top:1px solid var(--panel-border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
         <span style="font-size:12px; color:var(--text-muted);">Promoción directa rápida de cantera local (1 por temporada):</span>
-        <button id="btn-promote-youth" class="fm-btn fm-btn-ghost" ${youthPromotedThisSeason ? 'disabled style="opacity:0.45; cursor:not-allowed;"' : ""} style="font-size:12px; padding:6px 12px;">
-          ${youthPromotedThisSeason ? "✓ Promoción directa usada esta temporada" : "⚡ Promoción Directa Rápida (1.50 M€)"}
+        <button id="btn-promote-youth" class="fm-btn fm-btn-ghost" ${youthPromotedThisSeason ? 'disabled style="opacity:0.45; cursor:not-allowed;"' : ''} style="font-size:12px; padding:6px 12px;">
+          ${youthPromotedThisSeason ? '✓ Promoción directa usada esta temporada' : '🌟 Promoción Directa Rápida (1.50 M€)'}
         </button>
       </div>
     </div>
@@ -956,7 +968,9 @@ function renderTacticsTab(state) {
           <h3 style="margin: 0;">Pizarra Táctica (${formation})</h3>
           <div style="display:flex; align-items:center; gap:8px;">
             <button class="btn-auto-best-xi fm-btn fm-btn-primary" style="padding:4px 10px; font-size:11px;">⚡ Mejor XI</button>
-            ${outOfPosCount > 0 ? `<span style="color: #fbbf24; font-size: 12px; font-weight: 700;">⚠️ ${outOfPosCount} fuera de puesto</span>` : `<span style="color: var(--success); font-size: 12px; font-weight: 700;">✓ Roles cubiertos</span>`}
+            ${outOfPosCount > 0
+              ? `<span style="color: #fbbf24; font-size: 12px; font-weight: 700;">⚠️ ${outOfPosCount} fuera de puesto</span>`
+              : `<span style="color: var(--success); font-size: 12px; font-weight: 700;">✓ Roles cubiertos</span>`}
           </div>
         </div>
 
@@ -971,10 +985,10 @@ function renderTacticsTab(state) {
 
           <div style="display: flex; gap: 6px; background: rgba(6,9,19,0.75); padding: 4px; border-radius: 10px; border: 1px solid var(--panel-border);">
             <button class="btn-kit-mode fm-btn ${kitMode === 'home' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-kit="home" style="padding: 4px 10px; font-size: 11px;">
-              1ª Equipación
+              👕 1ª Equipación
             </button>
             <button class="btn-kit-mode fm-btn ${kitMode === 'away' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-kit="away" style="padding: 4px 10px; font-size: 11px;">
-              2ª Equipación
+              👕 2ª Equipación
             </button>
           </div>
         </div>
@@ -1053,7 +1067,6 @@ function renderTransfersTab(state) {
   const queryLower = searchQuery.toLowerCase();
 
   const allExternal = Object.values(state.players || {}).filter(p => p.clubId !== state.userClubId);
-
   const filtered = allExternal.filter(p => {
     if (posFilter !== "ALL" && p.pos !== posFilter) return false;
     if (leagueFilter === "FREE") {
@@ -1084,7 +1097,7 @@ function renderTransfersTab(state) {
         </div>
         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
           <button class="btn-filter-league fm-btn ${leagueFilter === 'ALL' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="ALL" style="padding: 5px 9px; font-size: 11px;">Todas</button>
-          <button class="btn-filter-league fm-btn ${leagueFilter === 'FREE' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="FREE" style="padding: 5px 9px; font-size: 11px; border-color:rgba(16,185,129,0.5); color:#34d399;">🆓 Libres (OM)</button>
+          <button class="btn-filter-league fm-btn ${leagueFilter === 'FREE' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="FREE" style="padding: 5px 9px; font-size: 11px; border-color:rgba(16,185,129,0.5); color:#34d399;">🆓 Libres (0M)</button>
           ${LEAGUES_CATALOG.map(l => `
             <button class="btn-filter-league fm-btn ${leagueFilter === l.id ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="${l.id}" style="padding: 5px 9px; font-size: 11px;">
               ${l.flag} ${l.country}
@@ -1099,7 +1112,7 @@ function renderTransfersTab(state) {
           <input id="market-search-input" type="text" value="${searchQuery.replace(/"/g, "&quot;")}" placeholder="Ej: Leyton, Gutierrez, Rave, Galvis..." style="width:100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
         </div>
         <div>
-          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">⏳ Rango de Edad</label>
+          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">🎂 Rango de Edad</label>
           <select id="market-age-select" style="width:100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
             <option value="ALL" ${ageFilter === "ALL" ? "selected" : ""}>Todas las edades</option>
             <option value="U21" ${ageFilter === "U21" ? "selected" : ""}>Sub-21 (Promesas ≤ 21a)</option>
@@ -1171,7 +1184,7 @@ function renderTransfersTab(state) {
               return `
                 <tr>
                   <td>
-                    <span class="btn-inspect-player" data-pid="${p.id}" style="cursor:pointer; font-weight:800; text-decoration:underline; text-decoration-color:rgba(255,255,255,0.28); text-underline-offset:3px;">${p.name}</span>
+                    <span class="btn-inspect-player" data-pid="${p.id}" style="cursor:pointer; font-weight:800; text-decoration:underline; text-decoration-color:rgba(96,165,250,0.5);">${p.name}</span>
                     ${p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">★ LEYENDA</span>` : p.isRegen ? `<span style="background:rgba(16,185,129,0.22); color:#34d399; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">REGEN</span>` : ""}
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px; display:flex; gap:8px;">
                       <span>RIT <b style="color:#e2e8f0;">${attrs.RIT}</b></span>
@@ -1203,7 +1216,7 @@ function renderTransfersTab(state) {
                           🤝 ${(lowVal / 1e6).toFixed(1)}M
                         </button>
                         <button class="btn-loan-player fm-btn fm-btn-ghost" data-pid="${p.id}" ${!canLoan ? 'disabled' : ''} title="Cesión 1 temporada (25%)" style="padding: 5px 8px; font-size: 11px; border-color: rgba(168,85,247,0.45); color: #d8b4fe; ${!canLoan ? 'opacity:0.4; cursor:not-allowed;' : ''}">
-                          📋 Ceder (${(loanVal / 1e6).toFixed(1)}M)
+                          📄 Ceder (${(loanVal / 1e6).toFixed(1)}M)
                         </button>
                       </div>
                     `}
@@ -1226,7 +1239,9 @@ function renderInboxTab(state) {
         <h3 style="margin: 0;">Centro de Comunicaciones y Eventos IA</h3>
         <button id="btn-gen-event" class="fm-btn fm-btn-ai">✨ Simular Evento IA</button>
       </div>
+
       ${messages.length === 0 ? `<p style="color: var(--text-muted);">No hay mensajes nuevos. Juega un partido o genera un evento.</p>` : ""}
+
       <div style="display: grid; gap: 14px;">
         ${messages.map(m => `
           <div class="fm-event-item">
@@ -1299,14 +1314,15 @@ function renderCompetitionsTab(state) {
       </div>
     ` : ""}
 
-    ${renderCupCard(state, "cont_1", "🏆")}
+    ${renderCupCard(state, "cont_1", "🌍")}
     ${renderCupCard(state, "cont_2", "🌎")}
+
     ${state.competitions?.intercontinental ? `
       <div class="fm-card" style="background: linear-gradient(135deg, rgba(234,179,8,0.18), rgba(15,23,42,0.95)); border: 1px solid rgba(250,204,21,0.45);">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
           <h3 style="margin:0; color:#fde047;">🌐 Copa Intercontinental FIFA (Campeón Europa vs Campeón América)</h3>
           <span style="font-size:13px; font-weight:900; color:#34d399;">
-            👑 Campeón Mundial: ${state.clubs[state.competitions.intercontinental.winnerId]?.name || "-"}
+            Campeón Mundial: ${state.clubs[state.competitions.intercontinental.winnerId]?.name || "-"}
           </span>
         </div>
         <div style="margin-top:10px; font-size:15px; font-weight:800; text-align:center; padding:10px; background:rgba(6,9,19,0.7); border-radius:10px;">
@@ -1316,7 +1332,8 @@ function renderCompetitionsTab(state) {
         </div>
       </div>
     ` : ""}
-    ${renderCupCard(state, "cup_1", "🥇")}
+
+    ${renderCupCard(state, "cup_1", "🏆")}
 
     <div style="display: flex; flex-wrap:wrap; gap:8px; margin-bottom:14px;">
       <button class="btn-select-standings fm-btn ${selectedStandingsView === 'league_1' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-lid="league_1" style="font-size:12px;">
@@ -1391,7 +1408,7 @@ function renderTopScorersCard(state) {
               return `
                 <tr class="${p.clubId === state.userClubId ? 'highlight-row' : ''}">
                   <td><b>${i + 1}</b></td>
-                  <td><span class="btn-inspect-player" data-pid="${p.id}" style="cursor:pointer; font-weight:800; text-decoration:underline; text-decoration-color:rgba(255,255,255,0.28); text-underline-offset:3px;">${p.name}</span></td>
+                  <td><span class="btn-inspect-player" data-pid="${p.id}" style="cursor:pointer; font-weight:800; text-decoration:underline; text-decoration-color:rgba(96,165,250,0.5);">${p.name}</span></td>
                   <td style="color: var(--text-muted);">${c?.flag || ""} ${c?.name || "-"}</td>
                   <td><b style="color: var(--success); font-size: 14px;">${p.goals}</b></td>
                 </tr>
@@ -1421,9 +1438,9 @@ function renderCupCard(state, compKey, icon) {
             <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px; font-weight: 800; text-transform: uppercase;">${cup.stageNames[sIdx]}</div>
             ${matches.map(([hId, aId]) => `
               <div style="font-size: 13px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.06);">
-                <span style="${hId === state.userClubId ? 'color: var(--success); font-weight:700;' : ''}">${state.clubs[hId]?.flag || ""} ${state.clubs[hId]?.name || hId}</span>
+                <span style="${hId === state.userClubId ? 'color: var(--success); font-weight: 700;' : ''}">${state.clubs[hId]?.flag || ""} ${state.clubs[hId]?.name || hId}</span>
                 <span style="color: var(--text-muted);"> vs </span>
-                <span style="${aId === state.userClubId ? 'color: var(--success); font-weight:700;' : ''}">${state.clubs[aId]?.flag || ""} ${state.clubs[aId]?.name || aId}</span>
+                <span style="${aId === state.userClubId ? 'color: var(--success); font-weight: 700;' : ''}">${state.clubs[aId]?.flag || ""} ${state.clubs[aId]?.name || aId}</span>
               </div>
             `).join("")}
           </div>
@@ -1439,6 +1456,7 @@ function renderLeagueTableCard(state, leagueKey = "league_1") {
     : state.competitions?.otherLeagues?.[leagueKey] || state.competitions?.league_1;
 
   if (!comp || !comp.standings) return "";
+
   const humanMap = {};
   (state.mpManagers || []).forEach(m => { humanMap[m.clubId] = m.name; });
 
@@ -1448,7 +1466,7 @@ function renderLeagueTableCard(state, leagueKey = "league_1") {
 
   return `
     <div class="fm-card">
-      <div style="display: flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
         <h3 style="margin:0;">Clasificación - ${comp.name}</h3>
         <span style="font-size:11px; color:#60a5fa; font-weight:700;">Top 2 → Copa Continental</span>
       </div>
@@ -1500,7 +1518,6 @@ function renderLiveMatchView(state) {
   );
   const homeClub = state.clubs[m.homeId];
   const awayClub = state.clubs[m.awayId];
-
   const attInfo = calculateMatchAttendance(
     homeClub,
     isUserHome ? (state.boardConfidence || 80) : 82,
@@ -1530,7 +1547,7 @@ function renderLiveMatchView(state) {
             <div id="live-score-text" style="font-size: 32px; font-weight: 900; letter-spacing: 2px; line-height: 1.1;">
               ${m.shootout ? `${m.gh} - ${m.ga} (Pen: ${m.shootout.homeScore}-${m.shootout.awayScore})` : `${m.gh} - ${m.ga}`}
             </div>
-            <span id="live-minute-badge" style="display:inline-block; margin-top:4px; background: ${m.shootout ? '#3b82f6' : m.paused ? '#f59e0b' : '#ef4444'}; color:${m.paused ? '#000' : '#fff'}; padding: 2px 10px; border-radius: 99px; font-size: 11px; font-weight: 800; letter-spacing: 0.05em;">
+            <span id="live-minute-badge" style="display:inline-block; margin-top:4px; background: ${m.shootout ? '#3b82f6' : m.paused ? '#f59e0b' : '#ef4444'}; color: ${m.paused ? '#000' : '#fff'}; padding: 2px 10px; border-radius: 99px; font-size: 11px; font-weight: 800; letter-spacing: 0.05em;">
               ${m.shootout ? "TANDA DE PENALES" : m.paused ? `PAUSADO (${m.minute}')` : `MIN ${m.minute}'`}
             </span>
           </div>
@@ -1542,13 +1559,13 @@ function renderLiveMatchView(state) {
         </div>
 
         <div style="margin-bottom: 12px; padding: 0 4px;">
-          <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-bottom: 5px;">
+          <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); margin-bottom:5px;">
             <span id="live-home-stats"><b style="color:#fff;">${homePossPct}%</b> Pos • <b style="color:#fff;">${m.stats?.homeShots || 0}</b> Tiros • <b style="color:#fff;">${m.stats?.homeFouls || 0}</b> Faltas</span>
             <span>Tu Táctica: <b style="color:#60a5fa;">${activeTactic}</b> | Rival: <b id="live-rival-tactic" style="color:#f59e0b;">${isUserHome ? m.awayTactic : m.homeTactic}</b></span>
             <span id="live-away-stats">Faltas <b style="color:#fff;">${m.stats?.awayFouls || 0}</b> • Tiros <b style="color:#fff;">${m.stats?.awayShots || 0}</b> • Pos <b style="color:#fff;">${awayPossPct}%</b></span>
           </div>
-          <div style="width: 100%; height:6px; background:${awayClub.colors[0]}; border-radius:99px; overflow:hidden; display:flex;">
-            <div id="live-poss-bar-home" style="width:${homePossPct}%; height:100%; background:${homeClub.colors[0]}; transition: width 0.25s ease;"></div>
+          <div style="width:100%; height:6px; background:${awayClub.colors[0]}; border-radius:99px; overflow:hidden; display:flex;">
+            <div id="live-poss-bar-home" style="width:${homePossPct}%; height:100%; background:${homeClub.colors[0]}; transition:width 0.25s ease;"></div>
           </div>
         </div>
 
@@ -1619,11 +1636,16 @@ function renderClubSelection(state) {
     });
   }
 
-  const clubs = Object.values(state.clubs || {}).filter(c => (c.leagueId || "esp_1") === selectedPreviewLeague);
+  let clubs = Object.values(state.clubs || {}).filter(c => (c.leagueId || "esp_1") === selectedPreviewLeague);
+  if (clubs.length === 0 && allClubsSorted.length > 0) {
+    selectedPreviewLeague = allClubsSorted[0].leagueId || "esp_1";
+    clubs = allClubsSorted.filter(c => (c.leagueId || "esp_1") === selectedPreviewLeague);
+  }
+
   return `
     <div class="fm-container" style="max-width: 980px; margin-top: 16px;">
       <div class="fm-hero-header">
-        <div style="display:inline-block; background:rgba(59,130,246,0.2); border:1px solid rgba(59,130,246,0.45); color:#60a5fa; font-size:11px; font-weight:800; padding:4px 12px; border-radius:99px; letter-spacing:0.08em; margin-bottom:10px;">
+        <div style="display:inline-block; background:rgba(59,130,246,0.2); border: 1px solid rgba(59,130,246,0.45); color:#60a5fa; font-size: 11px; font-weight:800; padding:4px 12px; border-radius:99px; letter-spacing:0.08em; margin-bottom: 10px;">
           TEMPORADA 2026 • 10 LIGAS MUNDIALES (EUROPA Y SUDAMÉRICA) • 120 CLUBES
         </div>
         <h1 style="font-size: 32px; font-weight: 900; letter-spacing: -0.02em; margin-bottom: 8px;">
@@ -1658,7 +1680,7 @@ function renderClubSelection(state) {
 
       ${setupMode === "join_online" ? `
         <div class="fm-card" style="max-width: 560px; margin:0 auto;">
-          <h3 style="margin-bottom:6px;">🌐 Unirse a una Sala Online por Código</h3>
+          <h3 style="margin-bottom: 6px;">🌐 Unirse a una Sala Online por Código</h3>
           <p style="font-size:13px; color:var(--text-muted); margin-bottom:14px;">
             Pide al anfitrión el código de 6 letras de la sala (ej. <b style="color:#fff;">WFM82K</b>) y elige tu perfil de mánager.
           </p>
@@ -1778,6 +1800,7 @@ function handleSeasonEndHooks(seasonNum) {
 function runQuickSimulationFlow() {
   const stBefore = store.get();
   const nextEv = getNextUserEvent(stBefore);
+
   const res = simulateQuickMatch();
   if (!res.ok) {
     showToast(res.msg, "warning");
@@ -1880,6 +1903,7 @@ function bindEvents(state) {
 
   document.getElementById("btn-play-match")?.addEventListener("click", launchNextMatch);
   document.getElementById("btn-sidebar-play")?.addEventListener("click", launchNextMatch);
+
   document.getElementById("btn-quick-sim")?.addEventListener("click", runQuickSimulationFlow);
   document.getElementById("btn-sidebar-quicksim")?.addEventListener("click", runQuickSimulationFlow);
 
@@ -2141,12 +2165,12 @@ function bindEvents(state) {
 
   document.querySelectorAll(".btn-event-choice").forEach(btn => {
     btn.addEventListener("click", () => {
-      const evid = btn.dataset.evid;
+      const evId = btn.dataset.evid;
       const idx = Number(btn.dataset.idx);
       if (btn.dataset.type === "transfer_offer") {
-        respondToTransferOffer(evid, idx);
+        respondToTransferOffer(evId, idx);
       } else {
-        resolveInboxChoice(evid, idx);
+        resolveInboxChoice(evId, idx);
       }
       syncCurrentManagerSnapshot();
       syncOnlineIfActive();
@@ -2200,7 +2224,7 @@ document.addEventListener("click", async e => {
       showToast(res.msg, "warning");
     } else {
       fetchedOnlineRoom = res.room;
-      showToast(`✅ Sala ${res.room.room_code} cargada.`, "success");
+      showToast(`✓ Sala ${res.room.room_code} cargada.`, "success");
     }
     render();
     return;
@@ -2232,8 +2256,8 @@ document.addEventListener("click", async e => {
     if (mpDraftSlots.length > 2) {
       mpDraftSlots.splice(idx, 1);
       render();
+      return;
     }
-    return;
   }
 
   if (e.target.id === "btn-start-mp-career") {
@@ -2380,6 +2404,7 @@ document.addEventListener("click", async e => {
   if (previewLeagueBtn) {
     selectedPreviewLeague = previewLeagueBtn.dataset.lid;
     render();
+    return;
   }
 
   const selectBtn = e.target.closest(".btn-select-club");
@@ -2398,17 +2423,20 @@ document.addEventListener("click", async e => {
     ensureFreeAgentsPool();
     injectCustomLegends();
     ensureCareerHooksState();
+    return;
   }
 
   const audioBtn = e.target.closest("#btn-toggle-audio");
   if (audioBtn) {
     const muted = toggleMute();
     audioBtn.textContent = muted ? "🔇" : "🔊";
+    return;
   }
 
   const pauseBtn = e.target.closest("#btn-pause-match");
   if (pauseBtn) {
     togglePauseMatch();
+    return;
   }
 
   const subBtn = e.target.closest("#btn-confirm-sub");
@@ -2417,6 +2445,7 @@ document.addEventListener("click", async e => {
     const inPid = document.getElementById("sub-in-select")?.value;
     const res = makeLiveSubstitution(outIdx, inPid);
     showToast(res.msg, res.ok ? "success" : "warning");
+    return;
   }
 
   const liveMentBtn = e.target.closest(".btn-live-mentality");
@@ -2425,6 +2454,7 @@ document.addEventListener("click", async e => {
     const state = store.get();
     const isUserHome = state.liveMatch?.homeId === state.userClubId;
     setTactic(isUserHome, tactic);
+    return;
   }
 
   const finishBtn = e.target.closest("#btn-finish-match");
@@ -2438,21 +2468,30 @@ document.addEventListener("click", async e => {
       const rivalGoals = wasUserHome ? m.ga : m.gh;
       const won = userGoals > rivalGoals;
 
-      advanceMedicalRecovery();
-      applyPostMatchMedicalAndCards(m);
-      completeRoundWithUserResult(m.homeId, m.awayId, m.gh, m.ga, compId);
-      recordMatchInCareer(m.gh, m.ga);
-      processRoundProgression(wasUserHome);
-      triggerPostMatchEvent();
-      maybeGenerateIncomingOffer();
-      grantManagerXp(won ? 240 : userGoals === rivalGoals ? 110 : 50, "Partido en vivo");
-      evaluateObjectivesProgress({ wonMatch: won });
-      syncCurrentManagerSnapshot();
-      syncOnlineIfActive();
+      try {
+        advanceMedicalRecovery();
+        applyPostMatchMedicalAndCards(m);
+        completeRoundWithUserResult(m.homeId, m.awayId, m.gh, m.ga, compId);
+        recordMatchInCareer(m.gh, m.ga);
+        processRoundProgression(wasUserHome);
+        triggerPostMatchEvent();
+        maybeGenerateIncomingOffer();
+        grantManagerXp(won ? 240 : userGoals === rivalGoals ? 110 : 50, "Partido en vivo");
+        evaluateObjectivesProgress({ wonMatch: won });
+        syncCurrentManagerSnapshot();
+        syncOnlineIfActive();
+      } catch (err) {
+        console.error("Error procesando post-partido:", err);
+      }
+
+      store.update(["liveMatch", "activeTab"], draft => {
+        draft.liveMatch = null;
+        draft.activeTab = "home";
+      });
 
       const stateAfter = store.get();
-      const league = stateAfter.competitions.league_1;
-      if (league.currentRound >= league.schedule.length) {
+      const league = stateAfter.competitions?.league_1;
+      if (league && league.currentRound >= league.schedule.length) {
         setTimeout(() => handleSeasonEndHooks(stateAfter.season || 1), 300);
       }
     }
