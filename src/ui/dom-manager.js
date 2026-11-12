@@ -1,6 +1,6 @@
 import { store } from "../core/state.js";
 import { getNextUserEvent, completeRoundWithUserResult, initCompetitions } from "../engine/competitions.js";
-import { startLiveMatch, drawPitch, togglePauseMatch, setTactic, makeLiveSubstitution, FORMATIONS } from "../engine/match-live.js";
+import { startLiveMatch, drawPitch, togglePauseMatch, setTactic, makeLiveSubstitution, FORMATIONS, assignPlayersToSlots } from "../engine/match-live.js";
 import { calculateMarketValue, buyPlayer, sellPlayer, maybeGenerateIncomingOffer, respondToTransferOffer } from "../engine/transfers.js";
 import { triggerPostMatchEvent, resolveInboxChoice } from "../ai/director.js";
 import { processRoundProgression, advanceSeason, renewPlayerContract, recordMatchInCareer } from "../engine/progression.js";
@@ -8,13 +8,13 @@ import { STAFF_CATALOG, getStaffUpgradeCost, upgradeStaff } from "../engine/staf
 import { TRAINING_PLANS, setTrainingPlan } from "../engine/training.js";
 import { renderClubBadge } from "./badges.js";
 
+let lastLiveLayoutKey = "";
+
 export function initUI() {
   const root = document.getElementById("view-root");
   if (!root) return;
 
   const s = store.get();
-  // Si el usuario cerró o recargó la página en medio de un partido, limpiar liveMatch
-  // para volver de forma segura justo antes del partido sin quedar congelado
   if (s.liveMatch || (s.clubs && (!s.competitions?.league_1?.schedule?.length))) {
     store.update(["liveMatch", "competitions", "activeCompId"], draft => {
       draft.liveMatch = null;
@@ -35,17 +35,31 @@ function render() {
   if (!root) return;
 
   if (!state.userClubId) {
+    lastLiveLayoutKey = "";
     root.innerHTML = renderClubSelection(state);
     return;
   }
 
   if (state.liveMatch) {
-    root.innerHTML = renderLiveMatchView(state);
+    const m = state.liveMatch;
+    const isUserHome = m.homeId === state.userClubId;
+    const activeTactic = isUserHome ? (m.homeTactic || "Equilibrado") : (m.awayTactic || "Equilibrado");
+    const layoutKey = `${m.homeId}_${m.awayId}_${m.paused}_${m.finished}_${activeTactic}_${m.subsUsed || 0}`;
+
+    // Solo reconstruye el DOM cuando cambia el estado de controles (pausa, táctica, cambios o fin), NO cada 50ms
+    if (layoutKey !== lastLiveLayoutKey || !document.getElementById("pitch-canvas")) {
+      lastLiveLayoutKey = layoutKey;
+      root.innerHTML = renderLiveMatchView(state);
+    } else {
+      updateLiveMatchDynamicParts(state);
+    }
+
     const canvas = document.getElementById("pitch-canvas");
     drawPitch(canvas, state.liveMatch);
     return;
   }
 
+  lastLiveLayoutKey = "";
   const userClub = state.clubs[state.userClubId];
   const activeTab = state.activeTab || "home";
   const unreadCount = (state.inbox || []).filter(m => !m.resolved && m.choices?.length > 0).length;
@@ -87,6 +101,42 @@ function render() {
   `;
 
   bindEvents(state);
+}
+
+function updateLiveMatchDynamicParts(state) {
+  const m = state.liveMatch;
+  if (!m) return;
+  const isUserHome = m.homeId === state.userClubId;
+
+  const scoreEl = document.getElementById("live-score-text");
+  if (scoreEl) scoreEl.textContent = `${m.gh} - ${m.ga}`;
+
+  const minEl = document.getElementById("live-minute-badge");
+  if (minEl) minEl.textContent = m.paused ? `PAUSADO (${m.minute}')` : `Min ${m.minute}'`;
+
+  const totalPoss = (m.stats?.homePoss || 1) + (m.stats?.awayPoss || 1);
+  const homePossPct = Math.round(((m.stats?.homePoss || 1) / totalPoss) * 100);
+  const awayPossPct = 100 - homePossPct;
+
+  const homeStatsEl = document.getElementById("live-home-stats");
+  if (homeStatsEl) {
+    homeStatsEl.innerHTML = `Posesión: <b style="color:#fff;">${homePossPct}%</b> • Tiros: <b style="color:#fff;">${m.stats?.homeShots || 0}</b>`;
+  }
+
+  const awayStatsEl = document.getElementById("live-away-stats");
+  if (awayStatsEl) {
+    awayStatsEl.innerHTML = `Posesión: <b style="color:#fff;">${awayPossPct}%</b> • Tiros: <b style="color:#fff;">${m.stats?.awayShots || 0}</b>`;
+  }
+
+  const rivalTacticEl = document.getElementById("live-rival-tactic");
+  if (rivalTacticEl) {
+    rivalTacticEl.textContent = isUserHome ? m.awayTactic : m.homeTactic;
+  }
+
+  const logEl = document.getElementById("live-events-log");
+  if (logEl) {
+    logEl.innerHTML = m.events.map(ev => `<div>${ev}</div>`).join("");
+  }
 }
 
 function renderTabBtn(id, label, activeTab, color) {
@@ -193,6 +243,7 @@ function renderSquadTab(state) {
             <th>Jugador</th>
             <th>Pos</th>
             <th>OVR</th>
+            <th>Moral</th>
             <th>Físico</th>
             <th>Contrato</th>
             <th>Gestión</th>
@@ -201,6 +252,8 @@ function renderSquadTab(state) {
         <tbody>
           ${squad.map(p => {
             const stamColor = p.stamina > 70 ? 'var(--success)' : p.stamina > 45 ? '#f59e0b' : 'var(--danger)';
+            const morale = p.morale ?? 85;
+            const moraleColor = morale >= 85 ? 'var(--success)' : morale < 55 ? 'var(--danger)' : '#cbd5e1';
             const years = p.contractYears ?? 2;
             const contractColor = years <= 1 ? 'var(--danger)' : 'var(--text-muted)';
             const sellVal = Math.round(calculateMarketValue(p, 1) * 0.85);
@@ -214,6 +267,7 @@ function renderSquadTab(state) {
                 <td><b>${p.name}</b> <small style="color: var(--text-muted);">(${p.age}a)</small></td>
                 <td><span class="fm-badge-pos">${p.pos}</span></td>
                 <td><b>${p.ovr}</b></td>
+                <td style="color: ${moraleColor}; font-weight: 600;">${morale}%</td>
                 <td style="color: ${stamColor}; font-weight: 600;">${p.stamina}%</td>
                 <td style="color: ${contractColor}; font-weight: 700;">${years} ${years === 1 ? 'año ⚠️' : 'años'}</td>
                 <td style="display: flex; gap: 6px;">
@@ -300,13 +354,17 @@ function renderTacticsTab(state) {
     .filter(p => p.clubId === state.userClubId && p.starter)
     .slice(0, 11);
 
-  const coords = FORMATIONS[formation] || FORMATIONS["4-3-3"];
-  const shiftPreview = ((t.mentality - 50) / 50) * 14;
+  const assigned = assignPlayersToSlots(starters, formation);
+  const outOfPosCount = assigned.filter(a => a.outOfPosition).length;
+  const shiftPreview = ((t.mentality - 50) / 50) * 16;
 
   return `
     <div class="fm-grid-2">
       <div class="fm-card">
-        <h3>Pizarra Táctica (${formation})</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 style="margin: 0;">Pizarra Táctica (${formation})</h3>
+          ${outOfPosCount > 0 ? `<span style="color: #fbbf24; font-size: 12px; font-weight: 700;">⚠️ ${outOfPosCount} fuera de puesto</span>` : `<span style="color: var(--success); font-size: 12px; font-weight: 700;">✓ Roles cubiertos</span>`}
+        </div>
         <div style="display: flex; gap: 8px; margin-bottom: 16px;">
           ${Object.keys(FORMATIONS).map(f => `
             <button class="btn-formation fm-btn ${f === formation ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-form="${f}">
@@ -318,20 +376,17 @@ function renderTacticsTab(state) {
         <div style="position: relative; width: 100%; height: 320px; background: linear-gradient(90deg, #1a6b1a 50%, #1e7a1e 50%); border: 2px solid rgba(255,255,255,0.4); border-radius: 10px; overflow: hidden;">
           <div style="position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,0.35);"></div>
           <div style="position: absolute; left: 50%; top: 50%; width: 70px; height: 70px; transform: translate(-50%, -50%); border: 2px solid rgba(255,255,255,0.35); border-radius: 50%;"></div>
-          ${coords.map((slot, idx) => {
-            const rawX = Array.isArray(slot) ? slot[0] : slot.x;
-            const py = Array.isArray(slot) ? slot[1] : slot.y;
-            const px = idx === 0 ? rawX * 140 : Math.max(12, Math.min(92, rawX * 140 + shiftPreview));
-            const player = starters[idx];
-            const label = player ? player.name.split(" ").pop() : (slot.pos || `Pos ${idx + 1}`);
-            const ovr = player ? player.ovr : "--";
+          ${assigned.map(({ slot, player, outOfPosition }, idx) => {
+            const px = idx === 0 ? slot.x * 140 : Math.max(12, Math.min(92, slot.x * 140 + shiftPreview));
+            const label = player ? player.name.split(" ").pop() : slot.pos;
+            const ovr = player ? (outOfPosition ? Math.max(55, player.ovr - 12) : player.ovr) : "--";
             return `
-              <div style="position: absolute; left: ${px}%; top: ${py * 100}%; transform: translate(-50%, -50%); text-align: center; transition: left 0.2s ease;">
-                <div style="width: 30px; height: 30px; margin: 0 auto; border-radius: 50%; background: ${club.colors[0]}; border: 2px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold;">
+              <div class="tactic-node" data-base-x="${slot.x * 140}" data-is-gk="${idx === 0 ? '1' : '0'}" style="position: absolute; left: ${px}%; top: ${slot.y * 100}%; transform: translate(-50%, -50%); text-align: center; transition: left 0.1s ease;">
+                <div style="width: 30px; height: 30px; margin: 0 auto; border-radius: 50%; background: ${outOfPosition ? '#b45309' : club.colors[0]}; border: 2px solid ${outOfPosition ? '#fde047' : '#fff'}; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold;">
                   ${ovr}
                 </div>
-                <div style="background: rgba(9,13,22,0.85); color: #fff; font-size: 10px; padding: 1px 5px; border-radius: 4px; margin-top: 2px; white-space: nowrap;">
-                  ${label}
+                <div style="background: rgba(9,13,22,0.88); color: ${outOfPosition ? '#fde047' : '#fff'}; font-size: 10px; padding: 1px 5px; border-radius: 4px; margin-top: 2px; white-space: nowrap;">
+                  ${label} (${slot.pos})
                 </div>
               </div>
             `;
@@ -342,27 +397,27 @@ function renderTacticsTab(state) {
       <div class="fm-card">
         <h3>Instrucciones del Equipo</h3>
         <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 18px;">
-          Define la altura del bloque, la velocidad de pase y la presión antes y durante el partido.
+          Define la altura del bloque, el ritmo de pase y la presión en campo rival.
         </p>
         <div style="display: grid; gap: 22px;">
           <div>
             <label style="display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 8px;">
               <span>Mentalidad (Defensiva ↔ Ofensiva)</span>
-              <span style="color: var(--primary);">${t.mentality}%</span>
+              <span id="val-mentality" style="color: var(--primary);">${t.mentality}%</span>
             </label>
             <input type="range" class="tactic-slider" data-key="mentality" min="10" max="95" value="${t.mentality}" style="width: 100%;">
           </div>
           <div>
             <label style="display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 8px;">
               <span>Ritmo de Circulación (Lento ↔ Vertiginoso)</span>
-              <span style="color: var(--primary);">${t.tempo}%</span>
+              <span id="val-tempo" style="color: var(--primary);">${t.tempo}%</span>
             </label>
             <input type="range" class="tactic-slider" data-key="tempo" min="10" max="95" value="${t.tempo}" style="width: 100%;">
           </div>
           <div>
             <label style="display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 8px;">
               <span>Intensidad de Presión (Bloque Bajo ↔ Presión Alta)</span>
-              <span style="color: var(--primary);">${t.press}%</span>
+              <span id="val-press" style="color: var(--primary);">${t.press}%</span>
             </label>
             <input type="range" class="tactic-slider" data-key="press" min="10" max="95" value="${t.press}" style="width: 100%;">
           </div>
@@ -605,8 +660,8 @@ function renderLiveMatchView(state) {
             ${renderClubBadge(homeClub, 34)} ${m.homeName}
           </div>
           <div style="text-align: center;">
-            <div style="font-size: 30px; font-weight: 800; letter-spacing: 2px;">${m.gh} - ${m.ga}</div>
-            <span style="background: ${m.paused ? '#f59e0b' : 'var(--danger)'}; padding: 2px 10px; border-radius: 99px; font-size: 12px; font-weight: bold;">
+            <div id="live-score-text" style="font-size: 30px; font-weight: 800; letter-spacing: 2px;">${m.gh} - ${m.ga}</div>
+            <span id="live-minute-badge" style="background: ${m.paused ? '#f59e0b' : 'var(--danger)'}; padding: 2px 10px; border-radius: 99px; font-size: 12px; font-weight: bold;">
               ${m.paused ? `PAUSADO (${m.minute}')` : `Min ${m.minute}'`}
             </span>
           </div>
@@ -616,20 +671,20 @@ function renderLiveMatchView(state) {
         </div>
 
         <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-bottom: 12px; padding: 0 6px;">
-          <span>Posesión: <b style="color:#fff;">${homePossPct}%</b> • Tiros: <b style="color:#fff;">${m.stats?.homeShots || 0}</b></span>
-          <span>Táctica en campo: <b style="color:#60a5fa;">${activeTactic}</b></span>
-          <span>Posesión: <b style="color:#fff;">${awayPossPct}%</b> • Tiros: <b style="color:#fff;">${m.stats?.awayShots || 0}</b></span>
+          <span id="live-home-stats">Posesión: <b style="color:#fff;">${homePossPct}%</b> • Tiros: <b style="color:#fff;">${m.stats?.homeShots || 0}</b></span>
+          <span>Tu Táctica: <b style="color:#60a5fa;">${activeTactic}</b> | Rival: <b id="live-rival-tactic" style="color:#f59e0b;">${isUserHome ? m.awayTactic : m.homeTactic}</b></span>
+          <span id="live-away-stats">Posesión: <b style="color:#fff;">${awayPossPct}%</b> • Tiros: <b style="color:#fff;">${m.stats?.awayShots || 0}</b></span>
         </div>
 
         ${!m.finished ? `
           <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-bottom: 12px; background: var(--bg-dark); padding: 10px; border-radius: 8px; border: 1px solid var(--panel-border);">
             <div style="display: flex; gap: 6px; align-items: center;">
               <span style="font-size: 12px; color: var(--text-muted); margin-right: 4px;">Orden Táctica:</span>
-              <button class="btn-live-mentality fm-btn ${activeTactic === 'Defensivo' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-tactic="Defensivo" style="padding: 5px 10px; font-size: 12px;">🛡️ Defensivo</button>
-              <button class="btn-live-mentality fm-btn ${activeTactic === 'Equilibrado' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-tactic="Equilibrado" style="padding: 5px 10px; font-size: 12px;">⚖️ Equilibrado</button>
-              <button class="btn-live-mentality fm-btn ${activeTactic === 'Ofensivo' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-tactic="Ofensivo" style="padding: 5px 10px; font-size: 12px;">🔥 Ofensivo</button>
+              <button type="button" class="btn-live-mentality fm-btn ${activeTactic === 'Defensivo' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-tactic="Defensivo" style="padding: 5px 10px; font-size: 12px;">🛡️ Defensivo</button>
+              <button type="button" class="btn-live-mentality fm-btn ${activeTactic === 'Equilibrado' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-tactic="Equilibrado" style="padding: 5px 10px; font-size: 12px;">⚖️ Equilibrado</button>
+              <button type="button" class="btn-live-mentality fm-btn ${activeTactic === 'Ofensivo' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-tactic="Ofensivo" style="padding: 5px 10px; font-size: 12px;">🔥 Ofensivo</button>
             </div>
-            <button id="btn-pause-match" class="fm-btn fm-btn-ghost" style="padding: 5px 12px; font-size: 12px;">
+            <button type="button" id="btn-pause-match" class="fm-btn fm-btn-ghost" style="padding: 5px 12px; font-size: 12px;">
               ${m.paused ? '▶ Reanudar' : '⏸ Pausar / Cambios'}
             </button>
           </div>
@@ -646,7 +701,7 @@ function renderLiveMatchView(state) {
                 <select id="sub-in-select" style="background: #1e293b; color: #fff; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--panel-border);">
                   ${benchPlayers.map(p => `<option value="${p.id}">Entra: ${p.name} (${p.pos} • OVR ${p.ovr})</option>`).join("")}
                 </select>
-                <button id="btn-confirm-sub" class="fm-btn fm-btn-primary" style="padding: 6px 12px; font-size: 12px;">Confirmar Cambio</button>
+                <button type="button" id="btn-confirm-sub" class="fm-btn fm-btn-primary" style="padding: 6px 12px; font-size: 12px;">Confirmar Cambio</button>
               </div>
             </div>
           ` : ""}
@@ -656,12 +711,12 @@ function renderLiveMatchView(state) {
           <canvas id="pitch-canvas" width="760" height="400" style="width: 100%; max-width: 760px; border-radius: 8px; border: 2px solid var(--panel-border);"></canvas>
         </div>
 
-        <div class="fm-live-log">
+        <div id="live-events-log" class="fm-live-log">
           ${m.events.map(ev => `<div>${ev}</div>`).join("")}
         </div>
 
         ${m.finished ? `
-          <button id="btn-finish-match" class="fm-btn fm-btn-primary" style="width: 100%; margin-top: 16px; padding: 14px; font-size: 16px;">
+          <button type="button" id="btn-finish-match" class="fm-btn fm-btn-primary" style="width: 100%; margin-top: 16px; padding: 14px; font-size: 16px;">
             Continuar y Actualizar Competición
           </button>
         ` : ""}
@@ -795,6 +850,22 @@ function bindEvents(state) {
   });
 
   document.querySelectorAll(".tactic-slider").forEach(slider => {
+    slider.addEventListener("input", () => {
+      const key = slider.dataset.key;
+      const val = Number(slider.value);
+      const labelEl = document.getElementById(`val-${key}`);
+      if (labelEl) labelEl.textContent = `${val}%`;
+
+      if (key === "mentality") {
+        const shift = ((val - 50) / 50) * 16;
+        document.querySelectorAll(".tactic-node").forEach(node => {
+          if (node.dataset.isGk === "1") return;
+          const base = Number(node.dataset.baseX);
+          node.style.left = `${Math.max(12, Math.min(92, base + shift))}%`;
+        });
+      }
+    });
+
     slider.addEventListener("change", () => {
       const key = slider.dataset.key;
       const val = Number(slider.value);
