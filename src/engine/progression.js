@@ -1,5 +1,6 @@
 import { store } from "../core/state.js";
 import { initCompetitions, initContinentalCup, CONTINENTAL_RIVALS } from "./competitions.js";
+import { TRAINING_PLANS } from "./training.js";
 
 export function renewPlayerContract(playerId) {
   const state = store.get();
@@ -35,10 +36,25 @@ export function renewPlayerContract(playerId) {
   return { ok: true };
 }
 
+export function recordMatchInCareer(gh, ga) {
+  store.update(["careerStats"], draft => {
+    if (!draft.careerStats) {
+      draft.careerStats = { played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0 };
+    }
+    draft.careerStats.played += 1;
+    draft.careerStats.gf += gh;
+    draft.careerStats.ga += ga;
+    if (gh > ga) draft.careerStats.wins += 1;
+    else if (gh === ga) draft.careerStats.draws += 1;
+    else draft.careerStats.losses += 1;
+  });
+}
+
 export function processRoundProgression(wasUserHome = true) {
   store.update(["players", "inbox", "budget", "lastFinanceReport"], draft => {
     const fitnessLvl = draft.staff?.fitness || 1;
     const youthLvl = draft.staff?.youth || 1;
+    const plan = TRAINING_PLANS[draft.trainingPlan || "balanced"] || TRAINING_PLANS.balanced;
 
     const myPlayers = Object.values(draft.players).filter(p => p.clubId === draft.userClubId);
     const weeklyWages = myPlayers.reduce((sum, p) => sum + (p.wage || 80000), 0);
@@ -54,24 +70,27 @@ export function processRoundProgression(wasUserHome = true) {
     };
 
     Object.values(draft.players).forEach(p => {
-      if (p.contractYears === undefined) p.contractYears = Math.floor(Math.random() * 3) + 1;
+      if (p.contractYears === undefined) p.contractYears = Math.floor(Math.random() * 4) + 1;
 
       if (p.clubId === draft.userClubId) {
         if (p.starter) {
           const baseDrain = Math.floor(Math.random() * 5) + 7;
-          const netDrain = Math.max(3, baseDrain - (fitnessLvl - 1));
-          p.stamina = Math.max(30, p.stamina - netDrain);
+          const netDrain = Math.max(2, baseDrain - (fitnessLvl - 1) - plan.staminaMod);
+          p.stamina = Math.max(30, Math.min(100, p.stamina - netDrain));
         } else {
-          const recovery = 18 + (fitnessLvl - 1) * 4;
+          const recovery = 18 + (fitnessLvl - 1) * 4 + Math.max(0, plan.staminaMod);
           p.stamina = Math.min(100, p.stamina + recovery);
         }
 
-        if (p.age <= 22 && p.ovr < 92 && Math.random() < (0.04 * youthLvl)) {
+        const isTargetPos = !plan.targetPositions || plan.targetPositions.includes(p.pos);
+        const growthChance = 0.04 * youthLvl * (isTargetPos ? plan.growthBonus : 0.8);
+
+        if (p.age <= 24 && p.ovr < 93 && Math.random() < growthChance) {
           p.ovr += 1;
           draft.inbox.unshift({
             id: `youth_${p.id}_${Date.now()}`,
-            title: `📈 Progreso en Entrenamiento: ${p.name}`,
-            body: `Gracias al trabajo del Entrenador de Cantera, ${p.name} (${p.age} años) ha subido su media a ${p.ovr} OVR.`,
+            title: `📈 Progreso Semanal (${plan.name}): ${p.name}`,
+            body: `Bajo el plan de ${plan.name}, ${p.name} (${p.pos}, ${p.age} años) ha subido su media a ${p.ovr} OVR.`,
             date: `Temporada ${draft.season || 1}`,
             resolved: true,
             choices: []
@@ -127,7 +146,6 @@ export function advanceSeason() {
       else if (p.age >= 32) p.ovr = Math.max(65, p.ovr - Math.floor(Math.random() * 2) - 1);
       p.wage = Math.round(p.ovr * 1150);
 
-      // Si un jugador del usuario termina contrato (0 años), se marcha libre a otro club
       if (p.clubId === draft.userClubId && p.contractYears <= 0) {
         const myRemaining = Object.values(draft.players).filter(x => x.clubId === draft.userClubId).length;
         if (myRemaining > 13 && otherClubIds.length > 0) {
