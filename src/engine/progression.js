@@ -1,6 +1,7 @@
 import { store } from "../core/state.js";
 import { initCompetitions, initContinentalCup, CONTINENTAL_RIVALS } from "./competitions.js";
 import { TRAINING_PLANS } from "./training.js";
+import { SPONSORS_CATALOG, getRealisticWeeklyWage } from "./economy-market.js";
 
 export function renewPlayerContract(playerId) {
   const state = store.get();
@@ -9,8 +10,9 @@ export function renewPlayerContract(playerId) {
     return { ok: false, msg: "Jugador no encontrado en tu plantilla." };
   }
 
-  const newWage = Math.round((player.wage || player.ovr * 1150) * 1.12);
-  const signingBonus = Math.round(player.ovr * 6500);
+  const baseWage = getRealisticWeeklyWage(player);
+  const newWage = Math.round(baseWage * 1.12);
+  const signingBonus = Math.round(newWage * 16);
 
   if ((state.budget || 0) < signingBonus) {
     return { ok: false, msg: `Necesitas ${(signingBonus / 1e6).toFixed(2)} M€ para la prima de renovación.` };
@@ -33,20 +35,27 @@ export function renewPlayerContract(playerId) {
     });
   });
 
-  return { ok: true };
+  return { ok: true, msg: `✍️ Contrato de ${player.name} renovado por 4 años.` };
 }
 
 export function recordMatchInCareer(gh, ga) {
-  store.update(["careerStats"], draft => {
+  store.update(["careerStats", "lastMatchWon"], draft => {
     if (!draft.careerStats) {
       draft.careerStats = { played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0 };
     }
     draft.careerStats.played += 1;
     draft.careerStats.gf += gh;
     draft.careerStats.ga += ga;
-    if (gh > ga) draft.careerStats.wins += 1;
-    else if (gh === ga) draft.careerStats.draws += 1;
-    else draft.careerStats.losses += 1;
+    if (gh > ga) {
+      draft.careerStats.wins += 1;
+      draft.lastMatchWon = true;
+    } else if (gh === ga) {
+      draft.careerStats.draws += 1;
+      draft.lastMatchWon = false;
+    } else {
+      draft.careerStats.losses += 1;
+      draft.lastMatchWon = false;
+    }
   });
 }
 
@@ -54,18 +63,34 @@ export function processRoundProgression(wasUserHome = true) {
   store.update(["players", "inbox", "budget", "lastFinanceReport"], draft => {
     const fitnessLvl = draft.staff?.fitness || 1;
     const youthLvl = draft.staff?.youth || 1;
+    const stadiumLvl = draft.staff?.stadium || 1;
     const plan = TRAINING_PLANS[draft.trainingPlan || "balanced"] || TRAINING_PLANS.balanced;
 
+    const userClub = draft.clubs?.[draft.userClubId];
     const myPlayers = Object.values(draft.players).filter(p => p.clubId === draft.userClubId);
-    const weeklyWages = myPlayers.reduce((sum, p) => sum + (p.wage || 80000), 0);
+
+    // Gastos semanales realistas: salarios + mantenimiento de instalaciones/staff
+    const weeklyWages = myPlayers.reduce((sum, p) => sum + getRealisticWeeklyWage(p), 0);
+    const staffUpkeep = ((fitnessLvl + (draft.staff?.scout || 1) + youthLvl + stadiumLvl) - 4) * 55000;
+    const totalExpenses = weeklyWages + staffUpkeep;
+
+    // Ingresos semanales: taquilla escalada por estadio + patrocinador + bonus por victoria
     const confidenceBonus = 1 + ((draft.boardConfidence || 85) - 50) / 100;
-    const ticketRevenue = wasUserHome ? Math.round(1450000 * confidenceBonus) : 350000;
-    const netBalance = ticketRevenue - weeklyWages;
+    const stadiumMult = 1 + (stadiumLvl - 1) * 0.28;
+    const ticketRevenue = wasUserHome
+      ? Math.round(1350000 * confidenceBonus * stadiumMult)
+      : 320000;
+
+    const sponsor = SPONSORS_CATALOG.find(s => s.id === (userClub?.sponsorId || "sp_local")) || SPONSORS_CATALOG[0];
+    const sponsorIncome = sponsor.weekly + (draft.lastMatchWon ? sponsor.winBonus : 0);
+
+    const totalIncome = ticketRevenue + sponsorIncome;
+    const netBalance = totalIncome - totalExpenses;
 
     draft.budget = Math.max(0, (draft.budget || 0) + netBalance);
     draft.lastFinanceReport = {
-      ticketRevenue,
-      weeklyWages,
+      ticketRevenue: totalIncome,
+      weeklyWages: totalExpenses,
       netBalance
     };
 
@@ -87,6 +112,7 @@ export function processRoundProgression(wasUserHome = true) {
 
         if (p.age <= 24 && p.ovr < 93 && Math.random() < growthChance) {
           p.ovr += 1;
+          p.wage = getRealisticWeeklyWage({ ...p, wage: 0 });
           draft.inbox.unshift({
             id: `youth_${p.id}_${Date.now()}`,
             title: `📈 Progreso Semanal (${plan.name}): ${p.name}`,
@@ -144,7 +170,7 @@ export function advanceSeason() {
 
       if (p.age <= 23) p.ovr = Math.min(94, p.ovr + Math.floor(Math.random() * 3) + 1);
       else if (p.age >= 32) p.ovr = Math.max(65, p.ovr - Math.floor(Math.random() * 2) - 1);
-      p.wage = Math.round(p.ovr * 1150);
+      p.wage = getRealisticWeeklyWage({ ...p, wage: 0 });
 
       if (p.clubId === draft.userClubId && p.contractYears <= 0) {
         const myRemaining = Object.values(draft.players).filter(x => x.clubId === draft.userClubId).length;
