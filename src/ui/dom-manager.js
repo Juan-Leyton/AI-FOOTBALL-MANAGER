@@ -8,6 +8,7 @@ import { autoPickBestXI } from "../engine/squad-manager.js";
 import { simulateQuickMatch } from "../engine/quick-sim.js";
 import { SCOUTING_REGIONS, scoutYouthRegion, signProspectToAcademy, promoteAcademyPlayerToFirstTeam, releaseAcademyPlayer } from "../engine/youth-scouting.js";
 import { ensureFreeAgentsPool, getFreeAgentSignBonus, signFreeAgent, retrainPlayerPosition, applyIndividualFocus } from "../engine/player-development.js";
+import { injectCustomLegends } from "../data/custom-legends.js";
 import { triggerPostMatchEvent, resolveInboxChoice } from "../ai/director.js";
 import { processRoundProgression, renewPlayerContract, recordMatchInCareer } from "../engine/progression.js";
 import { STAFF_CATALOG, getStaffUpgradeCost, upgradeStaff } from "../engine/staff.js";
@@ -52,6 +53,7 @@ export function initUI() {
   }
 
   ensureFreeAgentsPool();
+  injectCustomLegends();
   store.subscribe(render);
   render();
 }
@@ -489,7 +491,7 @@ function renderSquadTab(state) {
                   </td>
                   <td>
                     <span class="btn-inspect-player" data-pid="${p.id}" style="cursor:pointer; font-weight:800; text-decoration:underline; text-decoration-color:rgba(255,255,255,0.28); text-underline-offset:3px;">${p.name}</span>
-                    ${p.isYouth ? `<span style="background:rgba(59,130,246,0.25); color:#60a5fa; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CANTERA</span>` : ""}
+                    ${p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">★ LEYENDA</span>` : p.isYouth ? `<span style="background:rgba(59,130,246,0.25); color:#60a5fa; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CANTERA</span>` : ""}
                     ${p.isLoaned ? `<span style="background:rgba(168,85,247,0.25); color:#d8b4fe; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CEDIDO</span>` : ""}
                     <small style="color: var(--text-muted);">(${p.age}a)</small>
                     ${(p.yellowCardsSeason || 0) > 0 ? `<span style="margin-left:4px; font-size:10px; color:#facc15; font-weight:700;">🟨 ${p.yellowCardsSeason}/5</span>` : ""}
@@ -830,7 +832,7 @@ function renderTransfersTab(state) {
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-bottom: 14px; background: rgba(6,9,19,0.68); padding: 12px; border-radius: 12px; border: 1px solid var(--panel-border);">
         <div>
           <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">🔍 Buscar Jugador o Club</label>
-          <input id="market-search-input" type="text" value="${searchQuery.replace(/"/g, "&quot;")}" placeholder="Ej: Ramos, García, Madrid..." style="width:100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
+          <input id="market-search-input" type="text" value="${searchQuery.replace(/"/g, "&quot;")}" placeholder="Ej: Leyton, Gutierrez, Rave, Galvis..." style="width:100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
         </div>
 
         <div>
@@ -886,7 +888,14 @@ function renderTransfersTab(state) {
             ${marketPlayers.length === 0 ? `
               <tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-muted);">No hay futbolistas que coincidan con esos filtros.</td></tr>
             ` : marketPlayers.map(p => {
-              const attrs = getPlayerAttributes(p);
+              const baseAttrs = getPlayerAttributes(p);
+              const boosts = p.customBoosts || {};
+              const attrs = {
+                RIT: Math.min(99, baseAttrs.RIT + (boosts.RIT || 0)),
+                TIR: Math.min(99, baseAttrs.TIR + (boosts.TIR || 0)),
+                PAS: Math.min(99, baseAttrs.PAS + (boosts.PAS || 0)),
+                DEF: Math.min(99, baseAttrs.DEF + (boosts.DEF || 0))
+              };
               const isFree = p.clubId === "free_agent";
               const val = isFree ? getFreeAgentSignBonus(p) : calculateMarketValue(p, scoutLvl);
               const lowVal = Math.round(val * 0.82);
@@ -899,6 +908,7 @@ function renderTransfersTab(state) {
                 <tr>
                   <td>
                     <span class="btn-inspect-player" data-pid="${p.id}" style="cursor:pointer; font-weight:800; text-decoration:underline; text-decoration-color:rgba(255,255,255,0.28); text-underline-offset:3px;">${p.name}</span>
+                    ${p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">★ LEYENDA</span>` : ""}
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px; display:flex; gap:8px;">
                       <span>RIT <b style="color:#e2e8f0;">${attrs.RIT}</b></span>
                       <span>TIR <b style="color:#e2e8f0;">${attrs.TIR}</b></span>
@@ -1689,6 +1699,7 @@ document.addEventListener("click", e => {
       draft.activeCompId = "league_1";
     });
     ensureFreeAgentsPool();
+    injectCustomLegends();
   }
 
   const audioBtn = e.target.closest("#btn-toggle-audio");
