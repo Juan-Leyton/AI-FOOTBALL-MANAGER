@@ -29,11 +29,13 @@ import { getPlayerAttributes, promoteYouthProspect } from "../engine/academy.js"
 import { toggleMute, isAudioMuted } from "../engine/audio.js";
 import { getClubStadium, calculateMatchAttendance } from "../engine/stadium.js";
 import { isPlayerUnavailable, getPlayerStatusBadge, applyPostMatchMedicalAndCards, advanceMedicalRecovery } from "../engine/medical.js";
+import { registerPostMatchPressAndRecords } from "../engine/press-locker-records.js";
 import { LEAGUES_CATALOG, buildWorldDatabase } from "../data/world-database.js";
 import { renderEnhancedPitch } from "./pitch-renderer.js";
 import { renderPlayerProfileModal } from "./player-modal.js";
 import { renderTacticsExtrasUI } from "./tactics-extras.js";
 import { renderMarketEconomyExtrasUI } from "./market-economy-extras.js";
+import { renderPressLockerExtrasUI } from "./press-locker-extras.js";
 import { showToast } from "./toast.js";
 import { renderClubBadge } from "./badges.js";
 
@@ -356,6 +358,7 @@ function render() {
 
   renderTacticsExtrasUI();
   renderMarketEconomyExtrasUI();
+  renderPressLockerExtrasUI();
   bindEvents(state);
 
   if (wasSearching) {
@@ -533,8 +536,8 @@ function renderHomeTab(state) {
           <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--panel-border); font-size: 12px;">
             <div style="color: var(--text-muted); margin-bottom: 6px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;">Balance Última Jornada</div>
             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; background: rgba(6,9,19,0.65); padding: 9px 11px; border-radius: 10px;">
-              <div>Taquilla<br><b style="color: var(--success); font-size: 13px;">+${(fin.ticketRevenue / 1e6).toFixed(2)}M</b></div>
-              <div>Salarios<br><b style="color: var(--danger); font-size: 13px;">-${(fin.weeklyWages / 1e6).toFixed(2)}M</b></div>
+              <div>Ingresos<br><b style="color: var(--success); font-size: 13px;">+${(fin.ticketRevenue / 1e6).toFixed(2)}M</b></div>
+              <div>Gastos<br><b style="color: var(--danger); font-size: 13px;">-${(fin.weeklyWages / 1e6).toFixed(2)}M</b></div>
               <div>Neto<br><b style="color: ${fin.netBalance >= 0 ? 'var(--success)' : 'var(--danger)'}; font-size: 13px;">${fin.netBalance >= 0 ? '+' : ''}${(fin.netBalance / 1e6).toFixed(2)}M</b></div>
             </div>
           </div>
@@ -2361,6 +2364,7 @@ document.addEventListener("click", async e => {
       completeRoundWithUserResult(m.homeId, m.awayId, m.gh, m.ga, compId);
       recordMatchInCareer(m.gh, m.ga);
       processRoundProgression(wasUserHome);
+      registerPostMatchPressAndRecords(m.homeName, m.awayName, m.gh, m.ga, wasUserHome);
       triggerPostMatchEvent();
       maybeGenerateIncomingOffer();
 
