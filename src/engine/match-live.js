@@ -3,6 +3,7 @@ import { playWhistle, playKick, playGoalCheer } from "./audio.js";
 
 let matchInterval = null;
 const MAX_GOALS_PER_TEAM = 5;
+const ballTrail = [];
 
 export const FORMATIONS = {
   "4-3-3": [
@@ -101,6 +102,7 @@ export function startLiveMatch(homeId, awayId, onFinish, isKnockout = false) {
   const homeAgents = initAgents(homeClub, state.players, true);
   const awayAgents = initAgents(awayClub, state.players, false);
   const kickoffPlayer = homeAgents[9] || homeAgents[6];
+  ballTrail.length = 0;
 
   const liveData = {
     homeId,
@@ -771,6 +773,7 @@ function stepPenaltyShootout(m, onFinish) {
 }
 
 function kickoffReset(ball, homeAgents, awayAgents, kickoffTeam) {
+  ballTrail.length = 0;
   (homeAgents || []).forEach(a => { if (!a.expelled) { a.x = a.baseX; a.y = a.baseY; a.vx = 0; a.vy = 0; } });
   (awayAgents || []).forEach(a => { if (!a.expelled) { a.x = a.baseX; a.y = a.baseY; a.vx = 0; a.vy = 0; } });
 
@@ -857,22 +860,35 @@ export function drawPitch(canvas, liveMatch) {
   if (!canvas || !liveMatch) return;
   const bxVal = liveMatch.ball?.x ?? 0.5;
   const byVal = liveMatch.ball?.y ?? 0.5;
+
+  if (liveMatch.minute === 0 && liveMatch.tick <= 2) ballTrail.length = 0;
+  ballTrail.push({ x: bxVal, y: byVal, isShot: Boolean(liveMatch.ball?.isShot) });
+  if (ballTrail.length > 7) ballTrail.shift();
+
   const ctx = canvas.getContext("2d");
   const w = canvas.width;
   const h = canvas.height;
-  const padX = 28;
-  const padY = 20;
+  const padX = 32;
+  const padY = 22;
   const fieldW = w - padX * 2;
   const fieldH = h - padY * 2;
 
-  ctx.fillStyle = "#14532d";
+  ctx.fillStyle = "#08120c";
   ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = "#166534";
-  for (let i = 0; i < 12; i += 2) {
-    ctx.fillRect(padX + (fieldW / 12) * i, padY, fieldW / 12, fieldH);
+
+  for (let i = 0; i < 14; i++) {
+    ctx.fillStyle = i % 2 === 0 ? "#134e2a" : "#165b31";
+    ctx.fillRect(padX + (fieldW / 14) * i, padY, fieldW / 14 + 0.5, fieldH);
   }
 
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+  const floodlight = ctx.createRadialGradient(w / 2, h / 2, 40, w / 2, h / 2, w * 0.58);
+  floodlight.addColorStop(0, "rgba(255, 255, 255, 0.08)");
+  floodlight.addColorStop(0.65, "rgba(0, 0, 0, 0.02)");
+  floodlight.addColorStop(1, "rgba(0, 0, 0, 0.42)");
+  ctx.fillStyle = floodlight;
+  ctx.fillRect(padX, padY, fieldW, fieldH);
+
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.78)";
   ctx.lineWidth = 2;
   ctx.strokeRect(padX, padY, fieldW, fieldH);
 
@@ -882,33 +898,48 @@ export function drawPitch(canvas, liveMatch) {
   ctx.stroke();
 
   ctx.beginPath();
-  ctx.arc(w / 2, h / 2, 42, 0, Math.PI * 2);
+  ctx.arc(w / 2, h / 2, 44, 0, Math.PI * 2);
   ctx.stroke();
 
-  ctx.strokeRect(padX, h / 2 - 75, 58, 150);
-  ctx.strokeRect(w - padX - 58, h / 2 - 75, 58, 150);
+  ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+  ctx.beginPath();
+  ctx.arc(w / 2, h / 2, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeRect(padX, h / 2 - 76, 60, 152);
+  ctx.strokeRect(w - padX - 60, h / 2 - 76, 60, 152);
   ctx.strokeRect(padX, h / 2 - 38, 22, 76);
   ctx.strokeRect(w - padX - 22, h / 2 - 38, 22, 76);
 
+  ctx.beginPath();
+  ctx.arc(padX + 42, h / 2, 2.5, 0, Math.PI * 2);
+  ctx.arc(w - padX - 42, h / 2, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+
   const goalH = 68;
-  const goalDepth = 16;
+  const goalDepth = 18;
   const goalTop = h / 2 - goalH / 2;
 
   const drawGoalNet = (gx, gw) => {
-    ctx.fillStyle = "rgba(255, 255, 255, 0.16)";
+    ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
     ctx.fillRect(gx, goalTop, gw, goalH);
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 2.5;
-    ctx.strokeRect(gx, goalTop, gw, goalH);
-
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.28)";
     ctx.lineWidth = 1;
-    for (let y = goalTop + 8; y < goalTop + goalH; y += 8) {
+    for (let y = goalTop + 6; y < goalTop + goalH; y += 6) {
       ctx.beginPath();
       ctx.moveTo(gx, y);
       ctx.lineTo(gx + gw, y);
       ctx.stroke();
     }
+    for (let x = gx + 6; x < gx + gw; x += 6) {
+      ctx.beginPath();
+      ctx.moveTo(x, goalTop);
+      ctx.lineTo(x, goalTop + goalH);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(gx, goalTop, gw, goalH);
   };
 
   drawGoalNet(padX - goalDepth, goalDepth);
@@ -916,36 +947,76 @@ export function drawPitch(canvas, liveMatch) {
 
   const drawTeamAgents = (agents, colors, isHome) => {
     if (!Array.isArray(agents)) return;
-    agents.forEach(a => {
+    const teamKey = isHome ? "home" : "away";
+
+    agents.forEach((a, idx) => {
       if (a.expelled) return;
       const px = padX + a.x * fieldW;
       const py = padY + a.y * fieldH;
       const isGK = a.posType === "POR";
+      const hasBall = liveMatch.ball?.ownerTeam === teamKey && liveMatch.ball?.ownerId === a.id;
+      const radius = isGK ? 9.5 : 8.5;
+
+      if (hasBall) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(250, 204, 21, 0.85)";
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(px, py, radius + 4.5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      ctx.fillStyle = "rgba(0, 0, 0, 0.42)";
+      ctx.beginPath();
+      ctx.ellipse(px + 1.5, py + radius - 1, radius * 0.95, radius * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
 
       const fill = isGK ? (isHome ? "#facc15" : "#22d3ee") : (colors?.[0] || "#2563eb");
       const stroke = isGK ? "#090d16" : (colors?.[1] || "#ffffff");
 
       ctx.fillStyle = fill;
       ctx.beginPath();
-      ctx.arc(px, py, isGK ? 8.5 : 7.5, 0, Math.PI * 2);
+      ctx.arc(px, py, radius, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = stroke;
-      ctx.lineWidth = 2.2;
+      ctx.lineWidth = 2;
       ctx.stroke();
+
+      const jerseyNum = idx === 0 ? "1" : String(idx + 1);
+      ctx.fillStyle = isGK ? "#090d16" : "#ffffff";
+      ctx.font = "800 8.5px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(jerseyNum, px, py + 0.5);
 
       if ((a.yellowCards || 0) > 0) {
         ctx.fillStyle = "#facc15";
-        ctx.fillRect(px + 5, py - 11, 5, 7);
+        ctx.fillRect(px + 6, py - 12, 5, 7);
         ctx.strokeStyle = "#000";
         ctx.lineWidth = 0.8;
-        ctx.strokeRect(px + 5, py - 11, 5, 7);
+        ctx.strokeRect(px + 6, py - 12, 5, 7);
+      }
+
+      const stam = a.stamina ?? 100;
+      if (stam < 75) {
+        const barW = 16;
+        const pct = Math.max(0.1, stam / 100);
+        ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+        ctx.fillRect(px - barW / 2, py + radius + 2, barW, 2.5);
+        ctx.fillStyle = stam > 48 ? "#f59e0b" : "#ef4444";
+        ctx.fillRect(px - barW / 2, py + radius + 2, barW * pct, 2.5);
       }
 
       if (a.name) {
-        ctx.fillStyle = "rgba(255,255,255,0.9)";
-        ctx.font = "bold 9px sans-serif";
+        const lastName = a.name.split(" ").pop();
+        ctx.font = "700 9px system-ui, sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText(a.name.split(" ").pop(), px, py + 16);
+        ctx.textBaseline = "alphabetic";
+        ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
+        ctx.fillText(lastName, px + 0.8, py + radius + 12.8);
+        ctx.fillStyle = hasBall ? "#fde047" : "rgba(255, 255, 255, 0.92)";
+        ctx.fillText(lastName, px, py + radius + 12);
       }
     });
   };
@@ -953,19 +1024,32 @@ export function drawPitch(canvas, liveMatch) {
   drawTeamAgents(liveMatch.homeAgents, liveMatch.homeColors, true);
   drawTeamAgents(liveMatch.awayAgents, liveMatch.awayColors, false);
 
+  if (ballTrail.length > 1) {
+    for (let i = 0; i < ballTrail.length - 1; i++) {
+      const pt = ballTrail[i];
+      const alpha = ((i + 1) / ballTrail.length) * (pt.isShot ? 0.45 : 0.22);
+      const tx = padX + pt.x * fieldW;
+      const ty = padY + pt.y * fieldH;
+      ctx.fillStyle = pt.isShot ? `rgba(253, 224, 71, ${alpha})` : `rgba(255, 255, 255, ${alpha})`;
+      ctx.beginPath();
+      ctx.arc(tx, ty, 2 + (i * 0.4), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   const bx = padX + bxVal * fieldW;
   const by = padY + byVal * fieldH;
-  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
   ctx.beginPath();
-  ctx.arc(bx + 2, by + 3, 4.5, 0, Math.PI * 2);
+  ctx.arc(bx + 2, by + 3.5, 4.8, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.fillStyle = liveMatch.ball?.isShot ? "#fde047" : "#ffffff";
   ctx.beginPath();
-  ctx.arc(bx, by, 5, 0, Math.PI * 2);
+  ctx.arc(bx, by, 5.2, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = "#000000";
-  ctx.lineWidth = 1.2;
+  ctx.strokeStyle = "#090d16";
+  ctx.lineWidth = 1.3;
   ctx.stroke();
 
   if (liveMatch.goalBanner && liveMatch.goalBanner.timer > 0) {
@@ -981,21 +1065,21 @@ export function drawPitch(canvas, liveMatch) {
     ctx.arc(gx, gy, 15 + progress * 110, 0, Math.PI * 2);
     ctx.stroke();
 
-    ctx.fillStyle = "rgba(9, 13, 22, 0.55)";
+    ctx.fillStyle = "rgba(9, 13, 22, 0.58)";
     ctx.fillRect(0, 0, w, h);
 
     const scale = progress < 0.18 ? (progress / 0.18) * 1.06 : progress < 0.28 ? 1.06 - ((progress - 0.18) / 0.1) * 0.06 : 1;
     ctx.translate(w / 2, h / 2);
     ctx.scale(scale, scale);
 
-    const cardW = 390;
-    const cardH = 148;
+    const cardW = 400;
+    const cardH = 152;
     const c1 = gb.colors?.[0] || "#2563eb";
     const c2 = gb.colors?.[1] || "#facc15";
 
     ctx.fillStyle = "#0f172a";
     ctx.beginPath();
-    ctx.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 14);
+    ctx.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 16);
     ctx.fill();
 
     ctx.strokeStyle = c2;
@@ -1004,21 +1088,21 @@ export function drawPitch(canvas, liveMatch) {
 
     ctx.fillStyle = c1;
     ctx.beginPath();
-    ctx.roundRect(-cardW / 2, -cardH / 2, 14, cardH, [14, 0, 0, 14]);
+    ctx.roundRect(-cardW / 2, -cardH / 2, 16, cardH, [16, 0, 0, 16]);
     ctx.fill();
 
     ctx.fillStyle = "#facc15";
     ctx.font = "900 32px system-ui, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("⚽ ¡GOOOL!", 6, -24);
+    ctx.fillText("⚽ ¡GOOOL!", 8, -24);
 
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 18px system-ui, sans-serif";
-    ctx.fillText(`${gb.scorerName}  •  Min ${gb.minute}'`, 6, 12);
+    ctx.fillText(`${gb.scorerName}  •  Min ${gb.minute}'`, 8, 12);
 
     ctx.fillStyle = "#94a3b8";
     ctx.font = "bold 13px system-ui, sans-serif";
-    ctx.fillText(gb.scoreText, 6, 42);
+    ctx.fillText(gb.scoreText, 8, 44);
 
     ctx.restore();
   }
