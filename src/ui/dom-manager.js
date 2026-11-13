@@ -106,10 +106,11 @@ export function initUI() {
   if (!root) return;
 
   const s = store.get();
+  // Exigimos al menos 100 clubes para asegurar que estén las 10 ligas (Europa + Sudamérica)
   const hasValidClubs =
     s.clubs &&
-    Object.keys(s.clubs).length >= 20 &&
-    Object.values(s.clubs).some(c => c && c.leagueId);
+    Object.keys(s.clubs).length >= 100 &&
+    Object.values(s.clubs).some(c => c && c.leagueId === "col_1");
 
   if (!hasValidClubs) {
     const world = buildWorldDatabase();
@@ -1636,11 +1637,17 @@ function renderClubSelection(state) {
     });
   }
 
-  let clubs = Object.values(state.clubs || {}).filter(c => (c.leagueId || "esp_1") === selectedPreviewLeague);
+  let clubs = Object.values(state.clubs || {})
+    .filter(c => (c.leagueId || "esp_1") === selectedPreviewLeague)
+    .sort((a, b) => b.ovr - a.ovr);
+
   if (clubs.length === 0 && allClubsSorted.length > 0) {
     selectedPreviewLeague = allClubsSorted[0].leagueId || "esp_1";
-    clubs = allClubsSorted.filter(c => (c.leagueId || "esp_1") === selectedPreviewLeague);
+    clubs = allClubsSorted.filter(c => (c.leagueId || "esp_1") === selectedPreviewLeague).sort((a, b) => b.ovr - a.ovr);
   }
+
+  const euroLeagues = LEAGUES_CATALOG.filter(l => l.region !== "CONMEBOL");
+  const saLeagues = LEAGUES_CATALOG.filter(l => l.region === "CONMEBOL");
 
   return `
     <div class="fm-container" style="max-width: 980px; margin-top: 16px;">
@@ -1656,25 +1663,37 @@ function renderClubSelection(state) {
         </p>
 
         <div style="display:flex; justify-content:center; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
-          <button class="btn-setup-mode fm-btn ${setupMode === 'solo' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-mode="solo" style="padding: 9px 16px; font-size: 13px;">
+          <button type="button" class="btn-setup-mode fm-btn ${setupMode === 'solo' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-mode="solo" style="padding: 9px 16px; font-size: 13px;">
             👤 Carrera Individual
           </button>
-          <button class="btn-setup-mode fm-btn ${setupMode === 'mp' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-mode="mp" style="padding: 9px 16px; font-size: 13px; border-color:rgba(59,130,246,0.5);">
+          <button type="button" class="btn-setup-mode fm-btn ${setupMode === 'mp' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-mode="mp" style="padding: 9px 16px; font-size: 13px; border-color:rgba(59,130,246,0.5);">
             👥 Crear Sala Amigos (2-6)
           </button>
-          <button class="btn-setup-mode fm-btn ${setupMode === 'join_online' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-mode="join_online" style="padding: 9px 16px; font-size: 13px; border-color:rgba(16,185,129,0.5); color:${setupMode === 'join_online' ? '#fff' : '#34d399'};">
+          <button type="button" class="btn-setup-mode fm-btn ${setupMode === 'join_online' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-mode="join_online" style="padding: 9px 16px; font-size: 13px; border-color:rgba(16,185,129,0.5); color:${setupMode === 'join_online' ? '#fff' : '#34d399'};">
             🌐 Unirse a Sala Online
           </button>
         </div>
 
         ${setupMode === "solo" ? `
-          <div style="display: flex; justify-content:center; flex-wrap:wrap; gap:8px;">
-            ${LEAGUES_CATALOG.map(l => `
-              <button class="btn-preview-league fm-btn ${selectedPreviewLeague === l.id ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-lid="${l.id}" style="padding: 8px 16px; font-size: 13px;">
+          <div style="display: flex; justify-content:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+            ${euroLeagues.map(l => `
+              <button type="button" class="btn-preview-league fm-btn ${selectedPreviewLeague === l.id ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-lid="${l.id}" style="padding: 8px 15px; font-size: 13px;">
                 ${l.flag} ${l.name}
               </button>
             `).join("")}
           </div>
+          ${saLeagues.length > 0 ? `
+            <div style="font-size:11px; font-weight:800; color:#34d399; letter-spacing:0.06em; margin:8px 0 6px; text-transform:uppercase;">
+              🌎 Ligas Sudamericanas
+            </div>
+            <div style="display: flex; justify-content:center; flex-wrap:wrap; gap:8px;">
+              ${saLeagues.map(l => `
+                <button type="button" class="btn-preview-league fm-btn ${selectedPreviewLeague === l.id ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-lid="${l.id}" style="padding: 8px 15px; font-size: 13px;">
+                  ${l.flag} ${l.name}
+                </button>
+              `).join("")}
+            </div>
+          ` : ""}
         ` : ""}
       </div>
 
@@ -1686,7 +1705,7 @@ function renderClubSelection(state) {
           </p>
           <div style="display:flex; gap:8px; margin-bottom:16px;">
             <input id="input-join-room-code" type="text" maxlength="8" value="${joinRoomCodeInput.replace(/"/g, "&quot;")}" placeholder="CÓDIGO (EJ. WFM82K)" style="flex:1; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:10px; padding:10px 14px; font-size:15px; font-weight:900; letter-spacing:0.12em; text-transform:uppercase;">
-            <button id="btn-search-online-room" class="fm-btn fm-btn-primary" style="padding:10px 18px; font-size:13px;">
+            <button type="button" id="btn-search-online-room" class="fm-btn fm-btn-primary" style="padding:10px 18px; font-size:13px;">
               🔍 Buscar Sala
             </button>
           </div>
@@ -1700,7 +1719,7 @@ function renderClubSelection(state) {
                 ${(fetchedOnlineRoom.state_json?.mpManagers || []).map(m => {
                   const c = fetchedOnlineRoom.state_json?.clubs?.[m.clubId];
                   return `
-                    <button class="btn-join-as-manager fm-btn fm-btn-ghost" data-mgrid="${m.id}" style="display:flex; justify-content:space-between; align-items:center; width:100%; padding:10px 12px; text-align:left; border-color:rgba(59,130,246,0.4);">
+                    <button type="button" class="btn-join-as-manager fm-btn fm-btn-ghost" data-mgrid="${m.id}" style="display:flex; justify-content:space-between; align-items:center; width:100%; padding:10px 12px; text-align:left; border-color:rgba(59,130,246,0.4);">
                       <span>👤 <b>${m.name}</b> • ${c?.name || m.clubId}</span>
                       <span style="color:#60a5fa; font-weight:800; font-size:12px;">Entrar →</span>
                     </button>
@@ -1718,7 +1737,7 @@ function renderClubSelection(state) {
               <small style="color:var(--text-muted);">Cada amigo elige su nombre y club. Una vez dentro podrás publicar la sala online para que entren desde sus dispositivos.</small>
             </div>
             ${mpDraftSlots.length < 6 ? `
-              <button id="btn-mp-add-slot" class="fm-btn fm-btn-ghost" style="font-size:12px; padding:6px 12px; border-color:rgba(59,130,246,0.5); color:#93c5fd;">
+              <button type="button" id="btn-mp-add-slot" class="fm-btn fm-btn-ghost" style="font-size:12px; padding:6px 12px; border-color:rgba(59,130,246,0.5); color:#93c5fd;">
                 + Añadir Amigo
               </button>
             ` : ""}
@@ -1736,13 +1755,13 @@ function renderClubSelection(state) {
                   `).join("")}
                 </select>
                 ${mpDraftSlots.length > 2 ? `
-                  <button class="btn-mp-remove-slot fm-btn fm-btn-ghost" data-idx="${idx}" style="padding:7px 10px; color:#fca5a5;">✕</button>
+                  <button type="button" class="btn-mp-remove-slot fm-btn fm-btn-ghost" data-idx="${idx}" style="padding:7px 10px; color:#fca5a5;">✕</button>
                 ` : `<span></span>`}
               </div>
             `).join("")}
           </div>
 
-          <button id="btn-start-mp-career" class="fm-btn fm-btn-play">
+          <button type="button" id="btn-start-mp-career" class="fm-btn fm-btn-play">
             🚀 Iniciar Carrera Multijugador (${mpDraftSlots.length} Mánagers)
           </button>
         </div>
@@ -1755,9 +1774,9 @@ function renderClubSelection(state) {
               : { label: "Proyecto / Reto", color: "#34d399" };
 
             return `
-              <button class="fm-club-card-pick btn-select-club" data-id="${c.id}" style="background: linear-gradient(150deg, ${c.colors[0]}26, rgba(15, 23, 42, 0.94) 65%); border-top: 2px solid ${c.colors[0]};">
+              <button type="button" class="fm-club-card-pick btn-select-club" data-id="${c.id}" style="background: linear-gradient(150deg, ${c.colors[0]}26, rgba(15, 23, 42, 0.94) 65%); border-top: 2px solid ${c.colors[0]};">
                 <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
-                  <div style="display:flex; align-items:center; gap:10px;">
+                  <div style="display:flex; align-items:center; gap:10px; text-align:left;">
                     ${renderClubBadge(c, 38)}
                     ${renderJerseySvg(c.colors[0], c.colors[1], "10", false, 32)}
                     <div>
@@ -2208,10 +2227,21 @@ function bindEvents(state) {
   });
 }
 
+// Captura prioritaria (true) para que ningún script antiguo bloquee la selección de ligas o el fin de partido
 document.addEventListener("click", async e => {
-  // Eventos del Lobby Multijugador en Portada
+  const previewLeagueBtn = e.target.closest(".btn-preview-league");
+  if (previewLeagueBtn) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    selectedPreviewLeague = previewLeagueBtn.dataset.lid;
+    render();
+    return;
+  }
+
   const modeBtn = e.target.closest(".btn-setup-mode");
   if (modeBtn) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
     setupMode = modeBtn.dataset.mode;
     render();
     return;
@@ -2400,13 +2430,6 @@ document.addEventListener("click", async e => {
     return;
   }
 
-  const previewLeagueBtn = e.target.closest(".btn-preview-league");
-  if (previewLeagueBtn) {
-    selectedPreviewLeague = previewLeagueBtn.dataset.lid;
-    render();
-    return;
-  }
-
   const selectBtn = e.target.closest(".btn-select-club");
   if (selectBtn) {
     const clubId = selectBtn.dataset.id;
@@ -2496,7 +2519,7 @@ document.addEventListener("click", async e => {
       }
     }
   }
-});
+}, true);
 
 document.addEventListener("input", e => {
   if (e.target.id === "input-join-room-code") {
