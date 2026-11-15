@@ -1,5 +1,6 @@
 import { getPlayerAttributes } from "../engine/academy.js";
-import { calculateMarketValue } from "../engine/transfers.js";
+import { getDynamicValuationBreakdown } from "../engine/transfers.js";
+import { getRealisticWeeklyWage } from "../engine/economy-market.js";
 import { getPlayerStatusBadge } from "../engine/medical.js";
 import { getFreeAgentSignBonus, DEVELOPMENT_FOCUSES } from "../engine/player-development.js";
 import { renderClubBadge } from "./badges.js";
@@ -25,8 +26,9 @@ export function renderPlayerProfileModal(state, playerId) {
   if (!p) return "";
 
   const isFreeAgent = p.clubId === "free_agent";
-  const club = isFreeAgent
-    ? { name: p.isWorldIcon ? "Leyenda Histórica" : "Agente Libre", colors: p.isWorldIcon ? ["#eab308", "#0f172a"] : ["#10b981", "#0f172a"], flag: p.isWorldIcon ? "👑" : "🆓" }
+  const isVault = p.clubId === "legend_vault";
+  const club = (isFreeAgent || isVault)
+    ? { name: p.isWorldIcon ? "Salón de Leyendas" : "Agente Libre", colors: p.isWorldIcon ? ["#eab308", "#0f172a"] : ["#10b981", "#0f172a"], flag: p.isWorldIcon ? "👑" : "🆓" }
     : (state.clubs?.[p.clubId] || { name: "Sin Club", colors: ["#334155", "#94a3b8"], flag: "⚽" });
 
   const isOwn = p.clubId === state.userClubId;
@@ -40,13 +42,21 @@ export function renderPlayerProfileModal(state, playerId) {
   };
 
   const scoutLvl = state.staff?.scout || 1;
-  const marketVal = isFreeAgent ? getFreeAgentSignBonus(p) : calculateMarketValue(p, scoutLvl);
+  const breakdown = getDynamicValuationBreakdown(p, scoutLvl, state);
+  const marketVal = isFreeAgent ? getFreeAgentSignBonus(p) : breakdown.finalPrice;
   const lowVal = Math.round(marketVal * 0.82);
   const loanVal = Math.max(400000, Math.round(marketVal * 0.25));
   const sellVal = Math.round(marketVal * 0.85);
-  const canBuy = !isOwn && (state.budget || 0) >= marketVal;
-  const canLow = !isOwn && !isFreeAgent && (state.budget || 0) >= lowVal;
-  const canLoan = !isOwn && !isFreeAgent && !p.isLoaned && (state.budget || 0) >= loanVal;
+  const weeklyWage = getRealisticWeeklyWage(p);
+  const agentBonus = Math.round(weeklyWage * 6);
+
+  const minOffer = Math.max(500000, Math.round((marketVal * 0.72) / 100000) * 100000);
+  const maxOffer = Math.min(220000000, Math.round((marketVal * 1.30) / 100000) * 100000);
+  const defaultOffer = Math.round((marketVal * 0.95) / 100000) * 100000;
+
+  const canBuy = !isOwn && !isVault && (state.budget || 0) >= marketVal;
+  const canLow = !isOwn && !isFreeAgent && !isVault && (state.budget || 0) >= lowVal;
+  const canLoan = !isOwn && !isFreeAgent && !isVault && !p.isLoaned && (state.budget || 0) >= loanVal;
   const statusBadge = getPlayerStatusBadge(p);
 
   const ovrColor = p.ovr >= 90 ? "#facc15" : p.ovr >= 85 ? "#fde047" : p.ovr >= 78 ? "#7dd3fc" : "#e2e8f0";
@@ -55,7 +65,7 @@ export function renderPlayerProfileModal(state, playerId) {
 
   return `
     <div id="player-modal-backdrop" style="position:fixed; inset:0; background:rgba(3,7,18,0.84); backdrop-filter:blur(6px); z-index:9999; display:flex; align-items:center; justify-content:center; padding:16px; overflow-y:auto;">
-      <div style="width:100%; max-width:610px; background:linear-gradient(165deg, ${club.colors[0]}30, #0b1120 42%, #060913 100%); border:1px solid rgba(255,255,255,0.16); border-top:3px solid ${club.colors[0]}; border-radius:18px; padding:22px; box-shadow:0 24px 60px rgba(0,0,0,0.85); color:#fff; position:relative; max-height:92vh; overflow-y:auto;">
+      <div style="width:100%; max-width:640px; background:linear-gradient(165deg, ${club.colors[0]}30, #0b1120 42%, #060913 100%); border:1px solid rgba(255,255,255,0.16); border-top:3px solid ${club.colors[0]}; border-radius:18px; padding:22px; box-shadow:0 24px 60px rgba(0,0,0,0.85); color:#fff; position:relative; max-height:92vh; overflow-y:auto;">
         <button id="btn-close-player-modal" style="position:absolute; top:14px; right:14px; background:rgba(15,23,42,0.85); border:1px solid rgba(255,255,255,0.15); color:#cbd5e1; width:32px; height:32px; border-radius:99px; font-weight:900; cursor:pointer;">✕</button>
 
         <div style="display:flex; align-items:center; gap:14px; margin-bottom:16px;">
@@ -91,11 +101,11 @@ export function renderPlayerProfileModal(state, playerId) {
           </div>
           <div>
             <small style="display:block; font-size:10px; color:var(--text-muted);">MORAL</small>
-            <b style="font-size:16px; color:#e2e8f0;">${Math.round(p.morale ?? 85)}%</b>
+            <b style="font-size:16px; color:${(p.morale ?? 85) < 60 ? '#f87171' : '#e2e8f0'};">${Math.round(p.morale ?? 85)}%</b>
           </div>
           <div>
-            <small style="display:block; font-size:10px; color:var(--text-muted);">AMARILLAS</small>
-            <b style="font-size:16px; color:#facc15;">${p.yellowCardsSeason || 0}/5</b>
+            <small style="display:block; font-size:10px; color:var(--text-muted);">SALARIO</small>
+            <b style="font-size:15px; color:#facc15;">${(weeklyWage / 1000).toFixed(0)}k/sem</b>
           </div>
         </div>
 
@@ -110,18 +120,48 @@ export function renderPlayerProfileModal(state, playerId) {
 
           <div style="background:rgba(6,9,19,0.65); padding:12px; border-radius:12px; border:1px solid var(--panel-border); display:flex; flex-direction:column; justify-content:space-between;">
             <div>
-              <div style="font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:10px;">Situación Contractual</div>
-              <div style="font-size:13px; margin-bottom:8px;">
-                ${isFreeAgent ? "Prima de Fichaje:" : "Valor de Mercado:"}<br>
-                <b style="font-size:17px; color:#34d399;">${(marketVal / 1e6).toFixed(2)} M€</b>
+              <div style="font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:8px;">📊 Desglose de Valoración</div>
+              <div style="font-size:13px; margin-bottom:6px;">
+                ${isFreeAgent ? "Prima de Fichaje:" : "Tasación Dinámica:"}<br>
+                <b style="font-size:18px; color:#34d399;">${(marketVal / 1e6).toFixed(2)} M€</b>
+                ${!isFreeAgent ? `<small style="color:var(--text-muted); display:block; font-size:11px;">Base GRL ${p.ovr}: ${(breakdown.baseValue / 1e6).toFixed(2)} M€</small>` : ""}
               </div>
-              <div style="font-size:12.5px; color:var(--text-muted); margin-bottom:8px;">
-                Contrato: <b style="color:#fff;">${isFreeAgent ? "Sin club (Traspaso 0 M€)" : p.isLoaned ? "Cesión 1 temporada" : `${p.contractYears ?? 2} años`}</b>
+              <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
+                Contrato: <b style="color:#fff;">${isFreeAgent || isVault ? "Sin club activo" : p.isLoaned ? "Cesión 1 temporada" : `${p.contractYears ?? 2} años`}</b>
               </div>
+              ${!isFreeAgent && breakdown.modifiers.length > 0 ? `
+                <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
+                  ${breakdown.modifiers.map(m => `
+                    <span style="font-size:10.5px; font-weight:800; padding:2px 6px; border-radius:5px; background:${m.tone === "down" ? "rgba(16,185,129,0.18)" : "rgba(245,158,11,0.18)"}; color:${m.tone === "down" ? "#34d399" : "#fbbf24"}; border:1px solid ${m.tone === "down" ? "rgba(16,185,129,0.35)" : "rgba(245,158,11,0.35)"};">
+                      ${m.label} (${m.pct})
+                    </span>
+                  `).join("")}
+                </div>
+              ` : ""}
               <div>${statusBadge}</div>
             </div>
           </div>
         </div>
+
+        ${!isOwn && !isFreeAgent && !isVault ? `
+          <div style="background:rgba(6,9,19,0.78); padding:13px; border-radius:12px; border:1px solid rgba(59,130,246,0.35); margin-bottom:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <span style="font-size:11.5px; font-weight:800; color:#60a5fa; text-transform:uppercase;">🤝 Sala de Negociación Interactiva</span>
+              <span style="font-size:11px; color:var(--text-muted);">Comisión Agente: <b style="color:#fde047;">+${(agentBonus / 1e6).toFixed(2)} M€</b></span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:6px;">
+              <span>Tu Oferta al ${club.name}:</span>
+              <b id="neg-offer-display" style="color:#34d399; font-size:15px;">${(defaultOffer / 1e6).toFixed(2)} M€</b>
+            </div>
+            <input id="neg-offer-slider" type="range" min="${minOffer}" max="${maxOffer}" step="100000" value="${defaultOffer}" style="width:100%; margin-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+              <small style="color:var(--text-muted);">Incluye contraoferta del club si la oferta es cercana.</small>
+              <button id="btn-submit-negotiation" class="fm-btn fm-btn-primary" data-pid="${p.id}" style="padding:6px 13px; font-size:12px;">
+                📨 Enviar Oferta Negociada
+              </button>
+            </div>
+          </div>
+        ` : ""}
 
         ${isOwn ? `
           <div style="background:rgba(6,9,19,0.65); padding:12px; border-radius:12px; border:1px solid var(--panel-border); margin-bottom:14px;">
@@ -161,16 +201,18 @@ export function renderPlayerProfileModal(state, playerId) {
             ${!p.isLoaned ? `
               <button class="btn-modal-sell fm-btn fm-btn-ghost" data-pid="${p.id}">💰 Vender (${(sellVal / 1e6).toFixed(2)} M€)</button>
             ` : ""}
+          ` : isVault ? `
+            <span style="font-size:12px; color:#facc15; font-weight:700;">👑 Desbloqueable mediante Títulos Oficiales, Subastas Secretas VIP o Regens Élite.</span>
           ` : isFreeAgent ? `
             <button class="btn-modal-free-agent fm-btn ${canBuy ? "fm-btn-primary" : ""}" data-pid="${p.id}" ${!canBuy ? "disabled" : ""} style="${!canBuy ? "background:#334155; opacity:0.45; cursor:not-allowed;" : ""}">
-              ${p.isWorldIcon ? "👑 Fichar Leyenda" : "🆓 Fichar Libre"} (${(marketVal / 1e6).toFixed(2)} M€ prima)
+              🆓 Fichar Libre (${(marketVal / 1e6).toFixed(2)} M€ prima)
             </button>
           ` : `
             <button class="btn-modal-loan fm-btn fm-btn-ghost" data-pid="${p.id}" ${!canLoan ? "disabled" : ""} style="border-color:rgba(168,85,247,0.5); color:#d8b4fe; ${!canLoan ? "opacity:0.45; cursor:not-allowed;" : ""}">
               📋 Pedir Cesión (${(loanVal / 1e6).toFixed(2)} M€)
             </button>
             <button class="btn-modal-lowball fm-btn fm-btn-ghost" data-pid="${p.id}" ${!canLow ? "disabled" : ""} style="border-color:rgba(245,158,11,0.5); color:#fde047; ${!canLow ? "opacity:0.45; cursor:not-allowed;" : ""}">
-              🤝 Oferta Baja (${(lowVal / 1e6).toFixed(2)} M€)
+              🤝 Oferta Rápida (${(lowVal / 1e6).toFixed(2)} M€)
             </button>
             <button class="btn-modal-buy fm-btn ${canBuy ? "fm-btn-primary" : ""}" data-pid="${p.id}" ${!canBuy ? "disabled" : ""} style="${!canBuy ? "background:#334155; opacity:0.45; cursor:not-allowed;" : ""}">
               Fichar Directo (${(marketVal / 1e6).toFixed(2)} M€)

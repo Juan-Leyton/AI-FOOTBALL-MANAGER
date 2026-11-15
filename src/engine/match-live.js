@@ -130,7 +130,7 @@ export function startLiveMatch(homeId, awayId, onFinishCallback = null, isKnocko
 
   playWhistleSound();
 
-  store.update(["liveMatch"], draft => {
+  store.updateMemory(["liveMatch"], draft => {
     draft.liveMatch = {
       homeId,
       awayId,
@@ -187,7 +187,7 @@ export function startLiveMatch(homeId, awayId, onFinishCallback = null, isKnocko
 }
 
 export function togglePauseMatch() {
-  store.update(["liveMatch"], draft => {
+  store.updateMemory(["liveMatch"], draft => {
     if (draft.liveMatch && !draft.liveMatch.finished) {
       draft.liveMatch.paused = !draft.liveMatch.paused;
     }
@@ -195,7 +195,7 @@ export function togglePauseMatch() {
 }
 
 export function setTactic(isHome, tactic) {
-  store.update(["liveMatch"], draft => {
+  store.updateMemory(["liveMatch"], draft => {
     if (!draft.liveMatch) return;
     if (isHome) draft.liveMatch.homeTactic = tactic;
     else draft.liveMatch.awayTactic = tactic;
@@ -217,7 +217,7 @@ export function makeLiveSubstitution(outIdx, inPlayerId) {
 
   const isUserHome = m.homeId === state.userClubId;
 
-  store.update(["liveMatch"], draft => {
+  store.updateMemory(["liveMatch"], draft => {
     const lm = draft.liveMatch;
     const list = isUserHome ? lm.homeAgents : lm.awayAgents;
     const oldAgent = list[outIdx];

@@ -1,10 +1,93 @@
 import { store } from "../core/state.js";
 
-export function calculateMarketValue(player, scoutLevel = 1) {
-  const base = Math.pow(Math.max(1, player.ovr - 62), 2.15) * 42000;
-  const ageFactor = player.age <= 22 ? 1.25 : player.age >= 31 ? 0.65 : 1.0;
-  const discount = 1 - ((scoutLevel - 1) * 0.06);
-  return Math.max(500000, Math.round((base * ageFactor * discount) / 100000) * 100000);
+/**
+ * Motor de valoración dinámica e interactiva con desglose transparente
+ */
+export function getDynamicValuationBreakdown(player, scoutLevel = 1, state = null) {
+  const ovr = player.ovr || 75;
+  const expBase = Math.pow(Math.max(1, ovr - 60), 2.55) * 20500;
+  const eliteMult = ovr >= 88 ? 1 + (ovr - 87) * 0.08 : 1.0;
+  const baseValue = Math.max(500000, Math.round((expBase * eliteMult) / 100000) * 100000);
+
+  const modifiers = [];
+  let mult = 1.0;
+
+  // 1. Edad y Potencial
+  if (player.age <= 21) {
+    mult *= 1.24;
+    modifiers.push({ label: "🌟 Promesa Sub-21", pct: "+24%", tone: "up" });
+  } else if (player.age === 22) {
+    mult *= 1.15;
+    modifiers.push({ label: "⚡ Joven Proyección", pct: "+15%", tone: "up" });
+  } else if (player.age >= 32) {
+    mult *= 0.58;
+    modifiers.push({ label: "⏳ Veterano (32+)", pct: "-42%", tone: "down" });
+  } else if (player.age >= 30) {
+    mult *= 0.75;
+    modifiers.push({ label: "📉 Edad Avanzada", pct: "-25%", tone: "down" });
+  }
+
+  if ((player.potential || 0) >= 91 && player.age <= 23) {
+    mult *= 1.08;
+    modifiers.push({ label: "💎 Potencial Generacional", pct: "+8%", tone: "up" });
+  }
+
+  // 2. Años de contrato restantes
+  const years = player.contractYears ?? 2;
+  if (years <= 1 && player.clubId !== "free_agent" && player.clubId !== "legend_vault") {
+    mult *= 0.74;
+    modifiers.push({ label: "📄 Contrato por expirar", pct: "-26%", tone: "down" });
+  } else if (years >= 4 && player.clubId !== "free_agent") {
+    mult *= 1.10;
+    modifiers.push({ label: "🔒 Blindado (4+ años)", pct: "+10%", tone: "up" });
+  }
+
+  // 3. Moral / Estado anímico
+  const morale = player.morale ?? 85;
+  if (morale < 60) {
+    mult *= 0.82;
+    modifiers.push({ label: "😠 Jugador descontento", pct: "-18%", tone: "down" });
+  } else if (morale >= 93) {
+    mult *= 1.06;
+    modifiers.push({ label: "🔥 Compromiso total", pct: "+6%", tone: "up" });
+  }
+
+  // 4. Forma física y lesiones
+  if ((player.injuredMatches || 0) > 0) {
+    mult *= 0.78;
+    modifiers.push({ label: `🚑 Lesionado (${player.injuredMatches}j)`, pct: "-22%", tone: "down" });
+  } else if ((player.stamina ?? 95) < 60) {
+    mult *= 0.90;
+    modifiers.push({ label: "🔋 Baja forma física", pct: "-10%", tone: "down" });
+  }
+
+  // 5. Deadline Day (si se pasa state)
+  const round = (state?.competitions?.league_1?.currentRound || 0) + 1;
+  if (state && (round === 2 || round === 12)) {
+    mult *= 1.12;
+    modifiers.push({ label: "🚨 Sobrecoste Deadline Day", pct: "+12%", tone: "up" });
+  }
+
+  // 6. Descuento de Red de Ojeadores
+  if (scoutLevel > 1) {
+    const disc = (scoutLevel - 1) * 0.06;
+    mult *= (1 - disc);
+    modifiers.push({ label: `🔭 Ojeador Nvl ${scoutLevel}`, pct: `-${Math.round(disc * 100)}%`, tone: "down" });
+  }
+
+  const raw = baseValue * mult;
+  const capped = Math.min(200000000, raw);
+  const finalPrice = Math.max(500000, Math.round(capped / 100000) * 100000);
+
+  return {
+    baseValue,
+    finalPrice,
+    modifiers
+  };
+}
+
+export function calculateMarketValue(player, scoutLevel = 1, state = null) {
+  return getDynamicValuationBreakdown(player, scoutLevel, state).finalPrice;
 }
 
 export function buyPlayer(playerId, forceOverpay = false) {
@@ -12,8 +95,11 @@ export function buyPlayer(playerId, forceOverpay = false) {
   const player = state.players[playerId];
   const scoutLevel = state.staff?.scout || 1;
   if (!player) return { ok: false, msg: "Jugador no encontrado." };
+  if (player.clubId === "legend_vault") {
+    return { ok: false, msg: "Las leyendas históricas solo se obtienen mediante títulos, subastas secretas o regens élite." };
+  }
 
-  const basePrice = calculateMarketValue(player, scoutLevel);
+  const basePrice = calculateMarketValue(player, scoutLevel, state);
   const finalPrice = forceOverpay ? Math.round(basePrice * 1.15) : basePrice;
 
   if (state.budget < finalPrice) {
@@ -34,6 +120,7 @@ export function buyPlayer(playerId, forceOverpay = false) {
     draft.players[playerId].clubId = draft.userClubId;
     draft.players[playerId].starter = false;
     draft.players[playerId].contractYears = 4;
+    draft.players[playerId].morale = 90;
     if (!Array.isArray(draft.inbox)) draft.inbox = [];
     draft.inbox.unshift({
       id: `tr_${Date.now()}`,
@@ -62,7 +149,7 @@ export function sellPlayer(playerId) {
 
   const otherClubs = Object.keys(state.clubs).filter(id => id !== state.userClubId && !id.startsWith("ext_"));
   const buyerClubId = otherClubs[Math.floor(Math.random() * otherClubs.length)];
-  const sellPrice = Math.round(calculateMarketValue(player, 1) * 0.85);
+  const sellPrice = Math.round(calculateMarketValue(player, 1, state) * 0.85);
 
   store.update(["players", "budget", "inbox"], draft => {
     draft.budget += sellPrice;
@@ -95,7 +182,7 @@ export function maybeGenerateIncomingOffer() {
 
   const buyerId = otherClubs[Math.floor(Math.random() * otherClubs.length)];
   const buyerName = state.clubs[buyerId]?.name || "Club Europeo";
-  const offerAmount = Math.round(calculateMarketValue(target, 1) * 1.12);
+  const offerAmount = Math.round(calculateMarketValue(target, 1, state) * 1.12);
 
   store.update(["inbox"], draft => {
     if (!Array.isArray(draft.inbox)) draft.inbox = [];

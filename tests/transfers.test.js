@@ -9,6 +9,16 @@ globalThis.localStorage = {
   clear: () => { Object.keys(memStorage).forEach(k => delete memStorage[k]); }
 };
 
+export function getRealisticWeeklyWage(player) {
+  if (!player) return 25000;
+  if (player.wage && player.wage > 0) return player.wage;
+  const ovr = player.ovr || 75;
+  const expBase = Math.pow(Math.max(1, ovr - 60), 2.55) * 185;
+  const eliteMult = ovr >= 88 ? 1 + (ovr - 87) * 0.09 : 1.0;
+  const ageFactor = player.age >= 32 ? 0.85 : player.age <= 20 ? 0.62 : 1.0;
+  return Math.max(8000, Math.round((expBase * eliteMult * ageFactor) / 1000) * 1000);
+}
+
 import { store } from "../src/core/state.js";
 import {
   calculateMarketValue,
@@ -46,10 +56,10 @@ describe("Motor de Traspasos (transfers.js)", () => {
     store.update(["userClubId", "clubs", "players", "inbox", "budget", "season", "staff"], draft => {
       draft.userClubId = "club_user";
       draft.season = 1;
-      draft.budget = 50000000;
+      draft.budget = 150000000;
       draft.staff = { scout: 1 };
       draft.clubs = {
-        club_user: { id: "club_user", name: "Club Usuario", ovr: 80, budget: 50000000 },
+        club_user: { id: "club_user", name: "Club Usuario", ovr: 80, budget: 150000000 },
         club_rival: { id: "club_rival", name: "Club Rival", ovr: 84, budget: 90000000 }
       };
       draft.players = players;
@@ -99,10 +109,19 @@ describe("Motor de Traspasos (transfers.js)", () => {
     expect(store.get().players["p_ext"].clubId).toBe("club_rival");
   });
 
-  it("calcula valores de mercado coherentes con edad y nivel de ojeador", () => {
+  it("calcula valores de mercado coherentes con edad, nivel de ojeador y escala exponencial 90+", () => {
     const youngStar = { ovr: 85, age: 20 };
     const veteran = { ovr: 85, age: 33 };
     expect(calculateMarketValue(youngStar, 1)).toBeGreaterThan(calculateMarketValue(veteran, 1));
     expect(calculateMarketValue(youngStar, 5)).toBeLessThan(calculateMarketValue(youngStar, 1));
+
+    const worldClass90 = calculateMarketValue({ ovr: 90, age: 26 }, 1);
+    const goat95 = calculateMarketValue({ ovr: 95, age: 25 }, 1);
+    expect(worldClass90).toBeGreaterThanOrEqual(120000000);
+    expect(worldClass90).toBeLessThanOrEqual(200000000);
+    expect(goat95).toBeLessThanOrEqual(200000000);
+    expect(goat95).toBeGreaterThan(worldClass90);
   });
+
+  
 });

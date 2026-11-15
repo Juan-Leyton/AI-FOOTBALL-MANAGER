@@ -126,7 +126,9 @@ export function injectCustomLegends() {
   if (!state.clubs || !state.players) return;
 
   const friendsReady = CUSTOM_FRIENDS_ROSTER.every(f => Boolean(state.players[f.id]));
-  const iconsReady = WORLD_COUNTRY_LEGENDS.every(ic => Boolean(state.players[ic.id]));
+  const iconsReady = WORLD_COUNTRY_LEGENDS.every(
+    ic => Boolean(state.players[ic.id]) && state.players[ic.id].clubId !== "free_agent"
+  );
   if (friendsReady && iconsReady) return;
 
   store.update(["players", "inbox"], draft => {
@@ -168,22 +170,29 @@ export function injectCustomLegends() {
       };
     });
 
-    // 2. Íconos Históricos Mundiales disponibles en el Mercado como Agentes Libres de Élite
+    // 2. Íconos Históricos Mundiales en Bóveda Exclusiva (Recompensas por Títulos, Subastas Secretas y Regens Élite)
     WORLD_COUNTRY_LEGENDS.forEach(icon => {
-      if (draft.players[icon.id]) return;
+      if (draft.players[icon.id]) {
+        if (draft.players[icon.id].clubId === "free_agent") {
+          draft.players[icon.id].clubId = "legend_vault";
+          draft.players[icon.id].isFreeAgent = false;
+        }
+        return;
+      }
       draft.players[icon.id] = {
         id: icon.id,
         name: icon.name,
         age: icon.age,
         pos: icon.pos,
         ovr: icon.ovr,
+        potential: 96,
         nationality: icon.nationality,
         natCode: icon.natCode,
         flag: icon.flag,
-        clubId: "free_agent",
+        clubId: "legend_vault",
         starter: false,
         stamina: 99,
-        morale: 95,
+        morale: 96,
         contractYears: 0,
         goals: 0,
         isCustomLegend: true,
@@ -203,9 +212,9 @@ export function injectCustomLegends() {
       draft.inbox = [
         {
           id: "news_golden_generation_2026",
-          title: "🇨🇴 Informe Especial: Generación Dorada y Leyendas Mundiales",
+          title: "🇨🇴 Informe Especial: Generación Dorada y Salón de Leyendas",
           date: `Temporada ${state.season || 1}`,
-          body: `Los ojeadores internacionales destacan a 5 jóvenes colombianos en Europa:<br><br>${summaryLines}<br><br>Además, <b>20 Leyendas Históricas</b> (Pelé, Maradona, Cruyff, Zidane, Valderrama, Falcao, Maldini, Beckenbauer...) han llegado al Mercado como <b>Agentes Libres</b>.`,
+          body: `Los ojeadores internacionales destacan a 5 jóvenes colombianos en Europa:<br><br>${summaryLines}<br><br>Además, <b>20 Leyendas Históricas</b> (Pelé, Maradona, Cruyff, Zidane, Valderrama, Falcao, Maldini, Beckenbauer...) aguardan en la <b>Bóveda de Íconos</b>: desbloquéalas ganando <b>Títulos Oficiales</b>, ganando <b>Subastas Secretas VIP</b> o descubriendo sus <b>Regens Élite</b>.`,
           choices: [],
           resolved: true
         },
