@@ -1,10 +1,9 @@
 /**
  * src/ui/views/manager-tabs.js - Pestañas operativas del mánager
  */
+
 import { getNextUserEvent, getClubLeagueObj } from "../../engine/competitions.js";
 import { FORMATIONS, assignPlayersToSlots } from "../../engine/match-live.js";
-import { calculateMarketValue, getDynamicValuationBreakdown } from "../../engine/transfers.js";
-import { getTransferWindowStatus } from "../../engine/economy-market.js";
 import { SCOUTING_REGIONS } from "../../engine/youth-scouting.js";
 import { getFreeAgentSignBonus } from "../../engine/player-development.js";
 import { MANAGER_PERKS } from "../../engine/career-hooks.js";
@@ -17,6 +16,8 @@ import { LEAGUES_CATALOG } from "../../data/world-database.js";
 import { renderClubBadge } from "../badges.js";
 import { renderOvrBadge, renderJerseySvg, renderMiniBar } from "../components/ui-helpers.js";
 import { renderLeagueTableCard } from "./competitions-view.js";
+import { calculateMarketValue, getDynamicValuationBreakdown } from "../../engine/transfers.js";
+import { getTransferWindowStatus } from "../../engine/economy-market.js";
 
 export function renderHomeTab(state) {
   const nextEvent = getNextUserEvent(state);
@@ -33,7 +34,7 @@ export function renderHomeTab(state) {
   const isOnline = Boolean(state.onlineRoomCode);
 
   let matchTitle = "Fin de Temporada";
-  let matchCard = '<p><b>¡Temporada Finalizada!</b> Has completado los 22 partidos de Liga.</p>';
+  let matchCard = `<p><b>¡Temporada Finalizada!</b> Has completado los 22 partidos de Liga.</p>`;
 
   if (nextEvent?.waitingForOthers) {
     const pendingMgrs = (state.mpManagers || []).filter(m => {
@@ -42,9 +43,9 @@ export function renderHomeTab(state) {
     });
     matchTitle = nextEvent.compName;
     matchCard = `
-      <div style="background:rgba(59,130,246,0.14); border:1px solid rgba(59,130,246,0.4); border-radius:12px; padding:16px; text-align:center;">
+      <div style="background:rgba(59,130,246,0.14); border:1px solid rgba(59,130,246,0.4); border-radius:12px; padding: 16px; text-align:center;">
         <div style="font-size:22px; margin-bottom:6px;">⏳</div>
-        <b style="display:block; font-size:15px; margin-bottom:6px;">Ya disputaste tu partido de esta jornada</b>
+        <b style="display:block; font-size:15px; margin-bottom: 6px;">Ya disputaste tu partido de esta jornada</b>
         <p style="font-size:13px; color:var(--text-muted); margin-bottom:14px;">
           Esperando a que jueguen su turno: <b style="color:#fff;">${pendingMgrs.map(m => `${m.name} (${state.clubs[m.clubId]?.name})`).join(", ")}</b>
         </p>
@@ -54,7 +55,7 @@ export function renderHomeTab(state) {
           </button>
         ` : pendingMgrs[0] ? `
           <button class="btn-switch-manager fm-btn fm-btn-primary" data-midx="${state.mpManagers.findIndex(x => x.id === pendingMgrs[0].id)}">
-            🎮 Pasar Turno a ${pendingMgrs[0].name}
+            Pasar Turno a ${pendingMgrs[0].name}
           </button>
         ` : ""}
       </div>
@@ -66,12 +67,10 @@ export function renderHomeTab(state) {
     const isCup = nextEvent.compId === "cup_1";
     const isCont = nextEvent.compId === "cont_1";
     const isUserHome = hId === state.userClubId;
-
     const humanManagers = state.mpManagers || [];
     const homeMgr = humanManagers.find(m => m.clubId === hId);
     const awayMgr = humanManagers.find(m => m.clubId === aId);
     const isPvpDuel = Boolean(homeMgr && awayMgr);
-
     const attInfo = calculateMatchAttendance(
       home,
       isUserHome ? (state.boardConfidence || 80) : 82,
@@ -81,21 +80,21 @@ export function renderHomeTab(state) {
 
     matchTitle = nextEvent.compName;
     matchCard = `
-      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
-        <div style="display:flex; flex-wrap:wrap; gap:6px;">
-          ${isPvpDuel ? `<span style="display:inline-block; background: linear-gradient(90deg, #ef4444, #f97316); color:#fff; font-weight:900; font-size:11px; padding:3px 10px; border-radius:6px; letter-spacing:0.04em;">⚔️ DUELO PvP: ${homeMgr.name} vs ${awayMgr.name}</span>` : ""}
-          ${isCont ? '<span style="display:inline-block; background: linear-gradient(90deg, #2563eb, #3b82f6); color:#fff; font-weight:800; font-size:11px; padding:3px 10px; border-radius:6px; letter-spacing:0.04em;">🌍 COPA CONTINENTAL ÉLITE</span>' : ""}
-          ${isCup ? '<span style="display:inline-block; background: linear-gradient(90deg, #d97706, #f59e0b); color:#000; font-weight:800; font-size:11px; padding:3px 10px; border-radius:6px; letter-spacing:0.04em;">🏆 ELIMINATORIA DE COPA</span>' : ""}
+      <div style="display: flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom: 10px;">
+        <div style="display: flex; flex-wrap:wrap; gap:6px;">
+          ${isPvpDuel ? `<span style="display:inline-block; background: linear-gradient(90deg, #ef4444, #f97316); color:#fff; font-weight:900; font-size:11px; padding:3px 10px; border-radius:6px; letter-spacing:0.04em;">🔥 DUELO PvP: ${homeMgr.name} vs ${awayMgr.name}</span>` : ""}
+          ${isCont ? `<span style="display:inline-block; background: linear-gradient(90deg, #2563eb, #3b82f6); color:#fff; font-weight:800; font-size:11px; padding:3px 10px; border-radius:6px; letter-spacing:0.04em;">🌍 COPA CONTINENTAL ÉLITE</span>` : ""}
+          ${isCup ? `<span style="display:inline-block; background: linear-gradient(90deg, #d97706, #f59e0b); color:#000; font-weight:800; font-size:11px; padding:3px 10px; border-radius:6px; letter-spacing:0.04em;">🏆 ELIMINATORIA DE COPA</span>` : ""}
         </div>
-        <span style="font-size:11.5px; color:var(--text-muted); font-weight:700;">
-          🏟️ ${attInfo.stadiumName}: <b style="color:#e2e8f0;">${attInfo.attendance.toLocaleString()}</b> esp. (${attInfo.fillPct}%)
+        <span style="font-size: 11.5px; color:var(--text-muted); font-weight:700;">
+          🏟️ ${attInfo.stadiumName} · <b style="color:#e2e8f0;">${attInfo.attendance.toLocaleString()}</b> esp. (${attInfo.fillPct}%)
         </span>
       </div>
       <div class="fm-match-box" style="display: flex; align-items: center; justify-content: space-around; gap: 12px;">
         <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;">
           ${renderClubBadge(home, 44)}
           <b style="font-size: 14px;">${home.name}</b>
-          <span style="font-size: 11px; color: var(--text-muted);">${homeMgr ? `🎮 ${homeMgr.name}` : `${home.flag || ""} OVR ${home.ovr}`}</span>
+          <span style="font-size: 11px; color: var(--text-muted);">${homeMgr ? `👤 ${homeMgr.name}` : `${home.flag || ""} OVR ${home.ovr}`}</span>
         </div>
         <div style="text-align: center;">
           <div style="font-size: 13px; font-weight: 900; color: var(--text-muted); letter-spacing: 0.14em;">VS</div>
@@ -103,7 +102,7 @@ export function renderHomeTab(state) {
         <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;">
           ${renderClubBadge(away, 44)}
           <b style="font-size: 14px;">${away.name}</b>
-          <span style="font-size: 11px; color: var(--text-muted);">${awayMgr ? `🎮 ${awayMgr.name}` : `${away.flag || ""} OVR ${away.ovr}`}</span>
+          <span style="font-size: 11px; color: var(--text-muted);">${awayMgr ? `👤 ${awayMgr.name}` : `${away.flag || ""} OVR ${away.ovr}`}</span>
         </div>
       </div>
       <div style="display:grid; grid-template-columns: 1.4fr 1fr; gap:8px; margin-top:10px;">
@@ -126,8 +125,8 @@ export function renderHomeTab(state) {
           <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--panel-border); font-size: 12px;">
             <div style="color: var(--text-muted); margin-bottom: 6px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;">Balance Última Jornada</div>
             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; background: rgba(6,9,19,0.65); padding: 9px 11px; border-radius: 10px;">
-              <div>Ingresos<br><b style="color: var(--success); font-size: 13px;">+${(fin.ticketRevenue / 1e6).toFixed(2)}M</b></div>
-              <div>Gastos<br><b style="color: var(--danger); font-size: 13px;">-${(fin.weeklyWages / 1e6).toFixed(2)}M</b></div>
+              <div>Taquilla<br><b style="color: var(--success); font-size: 13px;">+${(fin.ticketRevenue / 1e6).toFixed(2)}M</b></div>
+              <div>Salarios<br><b style="color: var(--danger); font-size: 13px;">-${(fin.weeklyWages / 1e6).toFixed(2)}M</b></div>
               <div>Neto<br><b style="color: ${fin.netBalance >= 0 ? 'var(--success)' : 'var(--danger)'}; font-size: 13px;">${fin.netBalance >= 0 ? '+' : ''}${(fin.netBalance / 1e6).toFixed(2)}M</b></div>
             </div>
           </div>
@@ -144,9 +143,9 @@ export function renderHomeTab(state) {
         </div>
         <div style="display: flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:6px;">
           <span>Titulares Disponibles:</span>
-          <div style="display:flex; align-items:center; gap:8px;">
-            <b style="color: ${startersCount === 11 ? 'var(--success)' : 'var(--danger)'};">${startersCount} / 11 ${startersCount === 11 ? '✓' : '⚠️'}</b>
-            ${startersCount !== 11 ? '<button class="btn-auto-best-xi fm-btn fm-btn-primary" style="padding:3px 8px; font-size:11px;">⚡ Mejor XI</button>' : ""}
+          <div style="display: flex; align-items:center; gap:8px;">
+            <b style="color: ${startersCount === 11 ? 'var(--success)' : 'var(--danger)'};">${startersCount} / 11 ${startersCount === 11 ? '' : '⚠️'}</b>
+            ${startersCount !== 11 ? `<button class="btn-auto-best-xi fm-btn fm-btn-primary" style="padding:3px 8px; font-size: 11px;">⚡ Mejor XI</button>` : ""}
           </div>
         </div>
         <div style="display: flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:8px;">
@@ -173,14 +172,14 @@ export function renderHomeTab(state) {
               ? `Meta: Top ${obj.target}`
               : `${Math.min(obj.target, obj.current || 0)} / ${obj.target}`;
             return `
-              <div style="background:rgba(6,9,19,0.75); border:1px solid ${obj.completed ? 'rgba(16,185,129,0.45)' : 'var(--panel-border)'}; border-radius:11px; padding:11px 13px; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+              <div style="background:rgba(6,9,19,0.75); border:1px solid ${obj.completed ? 'rgba(16,185,129,0.45)' : 'var(--panel-border)'}; border-radius: 11px; padding:11px 13px; display:flex; justify-content:space-between; align-items:center; gap:10px;">
                 <div>
-                  <div style="font-size:13px; font-weight:800; color:${obj.completed ? '#34d399' : '#f8fafc'};">
-                    ${obj.completed ? '✅' : '📌'} ${obj.title}
+                  <div style="font-size: 13px; font-weight:800; color:${obj.completed ? '#34d399' : '#f8fafc'};">
+                    ${obj.completed ? '✅ ' : ''}${obj.title}
                   </div>
-                  <small style="color:var(--text-muted);">Recompensa: <b style="color:#34d399;">+${(obj.rewardCash/1e6).toFixed(1)}M€</b> • <b style="color:#60a5fa;">+${obj.rewardXp} XP</b></small>
+                  <small style="color:var(--text-muted);">Recompensa: <b style="color:#34d399;">+${(obj.rewardCash / 1e6).toFixed(1)}M€</b> • <b style="color:#60a5fa;">+${obj.rewardXp} XP</b></small>
                 </div>
-                <span style="font-size:11.5px; font-weight:800; padding:4px 9px; border-radius:7px; background:${obj.completed ? 'rgba(16,185,129,0.2)' : 'rgba(30,41,59,0.9)'}; color:${obj.completed ? '#34d399' : '#cbd5e1'}; white-space:nowrap;">
+                <span style="font-size: 11.5px; font-weight:800; padding:4px 9px; border-radius:7px; background:${obj.completed ? 'rgba(16, 185, 129, 0.2)' : 'rgba(30, 41, 59, 0.9)'}; color:${obj.completed ? '#34d399' : '#cbd5e1'}; white-space:nowrap;">
                   ${obj.completed ? 'Cumplido' : progText}
                 </span>
               </div>
@@ -190,9 +189,9 @@ export function renderHomeTab(state) {
       </div>
 
       <div class="fm-card">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div style="display: flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
           <h3 style="margin:0;">🎖️ Perks de Mánager (Nivel ${mp.level})</h3>
-          <span style="background:${(mp.skillPoints || 0) > 0 ? 'rgba(250,204,21,0.22)' : 'rgba(30,41,59,0.85)'}; color:${(mp.skillPoints || 0) > 0 ? '#fde047' : 'var(--text-muted)'}; border:1px solid ${(mp.skillPoints || 0) > 0 ? 'rgba(250,204,21,0.5)' : 'var(--panel-border)'}; padding:3px 10px; border-radius:99px; font-size:11.5px; font-weight:800;">
+          <span style="background:${(mp.skillPoints || 0) > 0 ? 'rgba(250, 204, 21, 0.22)' : 'rgba(30, 41, 59, 0.85)'}; color:${(mp.skillPoints || 0) > 0 ? '#fde047' : 'var(--text-muted)'}; border:1px solid ${(mp.skillPoints || 0) > 0 ? 'rgba(250,204,21,0.5)' : 'var(--panel-border)'}; padding:3px 10px; border-radius:99px; font-size:11.5px; font-weight:800;">
             ${mp.skillPoints || 0} Puntos disp.
           </span>
         </div>
@@ -201,13 +200,13 @@ export function renderHomeTab(state) {
             const cur = mp.perks?.[pk.key] || 0;
             const canUnlock = (mp.skillPoints || 0) > 0 && cur < pk.maxLevel;
             return `
-              <div style="background:rgba(6,9,19,0.75); border:1px solid var(--panel-border); border-radius:10px; padding:10px; display:flex; flex-direction:column; justify-content:space-between; gap:7px;">
+              <div style="background:rgba(6,9,19,0.75); border:1px solid var(--panel-border); border-radius:10px; padding: 10px; display: flex; flex-direction:column; justify-content:space-between; gap:7px;">
                 <div>
-                  <div style="display:flex; justify-content:space-between; font-size:12.5px; font-weight:800;">
+                  <div style="display: flex; justify-content:space-between; font-size:12.5px; font-weight:800;">
                     <span>${pk.name}</span>
                     <span style="color:#60a5fa;">${cur}/${pk.maxLevel}</span>
                   </div>
-                  <small style="color:var(--text-muted); font-size:11px; line-height:1.35; display:block; margin-top:3px;">${pk.desc}</small>
+                  <small style="color:var(--text-muted); font-size: 11px; line-height:1.35; display:block; margin-top:3px;">${pk.desc}</small>
                 </div>
                 <button class="btn-unlock-perk fm-btn ${canUnlock ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-perk="${pk.key}" ${!canUnlock ? 'disabled' : ''} style="padding:5px 8px; font-size:11px; ${!canUnlock ? 'opacity:0.48; cursor:not-allowed;' : ''}">
                   ${cur >= pk.maxLevel ? '✓ Al Máximo' : '+ Mejorar (1 pt)'}
@@ -227,7 +226,6 @@ export function renderSquadTab(state) {
   const squad = Object.values(state.players || {})
     .filter(p => p.clubId === state.userClubId)
     .sort((a, b) => (b.starter === a.starter ? b.ovr - a.ovr : b.starter ? 1 : -1));
-
   const startersCount = squad.filter(p => p.starter && !isPlayerUnavailable(p)).length;
 
   return `
@@ -237,15 +235,16 @@ export function renderSquadTab(state) {
           <h3 style="margin: 0;">Plantilla y Contratos (${squad.length} jugadores)</h3>
           <small style="color:var(--text-muted);">Haz clic en un jugador para entrenarlo, cambiar su posición o renovar</small>
         </div>
-        <div style="display:flex; align-items:center; gap:8px;">
+        <div style="display: flex; align-items:center; gap:8px;">
           <button class="btn-auto-best-xi fm-btn fm-btn-primary" style="padding: 6px 12px; font-size: 12px;">
             ⚡ Mejor XI Disponible
           </button>
           <span style="padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 800; background: ${startersCount === 11 ? 'rgba(16,185,129,0.18)' : 'rgba(239,68,68,0.18)'}; border: 1px solid ${startersCount === 11 ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)'}; color: ${startersCount === 11 ? 'var(--success)' : 'var(--danger)'};">
-            Titulares: ${startersCount} / 11 ${startersCount === 11 ? '✓' : '⚠️'}
+            Titulares: ${startersCount} / 11 ${startersCount === 11 ? '' : '⚠️'}
           </span>
         </div>
       </div>
+
       <div style="overflow-x:auto;">
         <table class="fm-table">
           <thead>
@@ -277,7 +276,7 @@ export function renderSquadTab(state) {
               const moraleColor = morale >= 80 ? '#10b981' : morale < 55 ? '#ef4444' : '#38bdf8';
               const years = p.contractYears ?? 2;
               const contractColor = years <= 1 ? 'var(--danger)' : 'var(--text-muted)';
-              const sellVal = Math.round(calculateMarketValue(p, 1, state) * 0.85);
+              const sellVal = Math.round(calculateMarketValue(p, 1) * 0.85);
 
               return `
                 <tr class="${p.starter && !unavail ? 'highlight-row' : ''}" style="${unavail ? 'opacity:0.78;' : ''}">
@@ -289,11 +288,11 @@ export function renderSquadTab(state) {
                     `}
                   </td>
                   <td>
-                    <span class="btn-inspect-player" data-pid="${p.id}" style="cursor: pointer; font-weight: 800; text-decoration: underline; text-decoration-color: rgba(59,130,246,0.55);">${p.name}</span>
-                    ${p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">★ LEYENDA</span>` : p.isRegen ? `<span style="background:rgba(16,185,129,0.22); color:#34d399; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">REGEN</span>` : p.isYouth ? `<span style="background:rgba(59,130,246,0.25); color:#60a5fa; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CANTERA</span>` : ""}
-                    ${p.isLoaned ? `<span style="background:rgba(168,85,247,0.25); color:#d8b4fe; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CEDIDO</span>` : ""}
+                    <span class="btn-inspect-player" data-pid="${p.id}" style="cursor: pointer; font-weight: 800; text-decoration: underline; text-decoration-color: rgba(96,165,250,0.5);">${p.name}</span>
+                    ${p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size: 10px; padding:1px 6px; border-radius:4px; font-weight:800;">★ LEYENDA</span>` : p.isRegen ? `<span style="background:rgba(16,185,129,0.22); color:#34d399; font-size: 10px; padding:1px 6px; border-radius:4px; font-weight:800;">REGEN</span>` : p.isYouth ? `<span style="background:rgba(59,130,246,0.25); color:#60a5fa; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">CANTERA</span>` : ""}
+                    ${p.isLoaned ? `<span style="background:rgba(168,85,247,0.25); color:#d8b4fe; font-size: 10px; padding:1px 6px; border-radius:4px; font-weight:800;">CEDIDO</span>` : ""}
                     <small style="color: var(--text-muted);">(${p.age}a)</small>
-                    ${(p.yellowCardsSeason || 0) > 0 ? `<span style="margin-left:4px; font-size:10px; color:#facc15; font-weight:700;">🟨${p.yellowCardsSeason}/5</span>` : ""}
+                    ${(p.yellowCardsSeason || 0) > 0 ? `<span style="margin-left:4px; font-size:10px; color:#facc15; font-weight:700;">🟨 ${p.yellowCardsSeason}/5</span>` : ""}
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px; display:flex; gap:8px;">
                       <span>RIT <b style="color:#e2e8f0;">${attrs.RIT}</b></span>
                       <span>TIR <b style="color:#e2e8f0;">${attrs.TIR}</b></span>
@@ -306,7 +305,7 @@ export function renderSquadTab(state) {
                   <td style="min-width:95px;">${renderMiniBar(morale, moraleColor)}</td>
                   <td style="min-width:95px;">${renderMiniBar(p.stamina, stamColor)}</td>
                   <td style="color: ${contractColor}; font-weight: 700; white-space: nowrap;">
-                    ${p.isLoaned ? "Cesión 1a" : `${years} ${years === 1 ? "año!" : "años"}`}
+                    ${p.isLoaned ? "Cesión 1a" : `${years} ${years === 1 ? "año ⚠️" : "años"}`}
                   </td>
                   <td style="display: flex; gap: 6px; white-space:nowrap;">
                     ${!p.isLoaned && years < 4 ? `
@@ -341,22 +340,22 @@ export function renderStaffTab(state) {
 
   return `
     <div class="fm-card">
-      <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px; margin-bottom:12px;">
+      <div style="display: flex; flex-wrap:wrap; justify-content: space-between; align-items: center; gap:8px; margin-bottom: 12px;">
         <div>
-          <h3 style="margin:0;">🌍 Red de Ojeadores Juveniles y Academia Sub-18 (${youthAcademy.length}/8)</h3>
+          <h3 style="margin: 0;">🔭 Red de Ojeadores Juveniles y Academia Sub-18 (${youthAcademy.length}/8)</h3>
           <small style="color:var(--text-muted);">Envía ojeadores a países clave, ficha promesas con alto Potencial (POT) y súbelas al primer equipo</small>
         </div>
-        <span style="background:rgba(59,130,246,0.2); border:1px solid rgba(59,130,246,0.4); padding:4px 10px; border-radius:8px; font-size:12px; color:#60a5fa; font-weight:800;">
+        <span style="background:rgba(59,130,246,0.2); border: 1px solid rgba(59,130,246,0.4); padding:4px 10px; border-radius:8px; font-size:12px; color:#60a5fa; font-weight:800;">
           Academia Nvl ${staff.youth || 1}
         </span>
       </div>
 
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(175px, 1fr)); gap:8px; margin-bottom:16px;">
         ${SCOUTING_REGIONS.map(reg => `
-          <button class="btn-scout-region fm-btn fm-btn-ghost" data-region="${reg.id}" style="text-align:left; padding:10px 12px; display:flex; flex-direction:column; gap:3px; border-color:${state.lastScoutRegion === reg.id ? '#3b82f6' : 'var(--panel-border)'};">
-            <div style="display:flex; justify-content:space-between; width:100%; font-weight:800; font-size:13px;">
+          <button class="btn-scout-region fm-btn fm-btn-ghost" data-region="${reg.id}" style="text-align: left; padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; border-color:${state.lastScoutRegion === reg.id ? '#3b82f6' : 'var(--panel-border)'};">
+            <div style="display: flex; justify-content:space-between; width: 100%; font-weight:800; font-size:13px;">
               <span>${reg.flag} ${reg.name}</span>
-              <span style="color:#34d399;">${(reg.cost/1e6).toFixed(2)}M</span>
+              <span style="color:#34d399;">${(reg.cost / 1e6).toFixed(2)}M</span>
             </div>
             <small style="color:var(--text-muted); font-size:11px;">${reg.specialty}</small>
           </button>
@@ -364,22 +363,22 @@ export function renderStaffTab(state) {
       </div>
 
       ${youthReports.length > 0 ? `
-        <div style="background:rgba(6,9,19,0.72); border:1px solid rgba(59,130,246,0.35); border-radius:12px; padding:12px; margin-bottom:14px;">
-          <div style="font-size:11.5px; font-weight:800; color:#60a5fa; text-transform:uppercase; margin-bottom:10px;">📋 Informe Actual de Ojeadores (Fichar para Academia)</div>
+        <div style="background:rgba(6,9,19,0.72); border:1px solid rgba(59,130,246,0.35); border-radius:12px; padding: 12px; margin-bottom:14px;">
+          <div style="font-size: 11.5px; font-weight:800; color:#60a5fa; text-transform:uppercase; margin-bottom:10px;">📋 Informe Actual de Ojeadores (Fichar para Academia)</div>
           <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">
             ${youthReports.map(rep => `
-              <div style="background:rgba(15,23,42,0.9); border:1px solid var(--panel-border); border-radius:10px; padding:10px; display:flex; flex-direction:column; justify-content:space-between; gap:8px;">
+              <div style="background:rgba(15,23,42,0.9); border:1px solid var(--panel-border); border-radius:10px; padding:10px; display: flex; flex-direction:column; justify-content:space-between; gap:8px;">
                 <div>
-                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <div style="display: flex; justify-content:space-between; align-items:center;">
                     <b>${rep.countryFlag} ${rep.name}</b>
                     <span class="fm-badge-pos">${rep.pos}</span>
                   </div>
                   <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
-                    ${rep.age} años • OVR <b style="color:#fff;">${rep.ovr}</b> • POT <b style="color:#fde047;">${rep.potMin}-${rep.potMax}</b>
+                    ${rep.age} años · OVR <b style="color:#fff;">${rep.ovr}</b> • POT <b style="color:#fde047;">${rep.potMin}-${rep.potMax}</b>
                   </div>
                 </div>
                 <button class="btn-sign-academy fm-btn fm-btn-primary" data-repid="${rep.id}" style="width:100%; padding:6px 10px; font-size:11.5px;">
-                  ✍️ Fichar Beca (${(rep.signFee / 1e6).toFixed(2)} M€)
+                  Fichar Beca (${(rep.signFee / 1e6).toFixed(2)} M€)
                 </button>
               </div>
             `).join("")}
@@ -388,24 +387,24 @@ export function renderStaffTab(state) {
       ` : ""}
 
       ${youthAcademy.length > 0 ? `
-        <div style="background:rgba(6,9,19,0.72); border:1px solid rgba(16,185,129,0.35); border-radius:12px; padding:12px; margin-bottom:12px;">
-          <div style="font-size:11.5px; font-weight:800; color:#34d399; text-transform:uppercase; margin-bottom:10px;">🎓 Plantilla Juvenil Sub-18 en Formación</div>
+        <div style="background:rgba(6,9,19,0.72); border:1px solid rgba(16,185,129,0.35); border-radius:12px; padding: 12px; margin-bottom:12px;">
+          <div style="font-size: 11.5px; font-weight:800; color:#34d399; text-transform:uppercase; margin-bottom: 10px;">🎓 Plantilla Juvenil Sub-18 en Formación</div>
           <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:10px;">
             ${youthAcademy.map(ac => `
-              <div style="background:rgba(15,23,42,0.9); border:1px solid var(--panel-border); border-radius:10px; padding:10px;">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div style="background:rgba(15,23,42,0.9); border:1px solid var(--panel-border); border-radius: 10px; padding:10px;">
+                <div style="display: flex; justify-content:space-between; align-items:center;">
                   <b>${ac.countryFlag} ${ac.name}</b>
                   <span class="fm-badge-pos">${ac.pos}</span>
                 </div>
                 <div style="font-size:12px; color:var(--text-muted); margin:5px 0 9px;">
-                  ${ac.age} años • OVR <b style="color:#fff;">${ac.ovr}</b> • POT <b style="color:#34d399;">${ac.potMin}-${ac.potMax}</b>
+                  ${ac.age} años · OVR <b style="color:#fff;">${ac.ovr}</b> · POT <b style="color:#34d399;">${ac.potMin}-${ac.potMax}</b>
                 </div>
-                <div style="display:flex; gap:6px;">
-                  <button class="btn-promote-academy-player fm-btn fm-btn-primary" data-acid="${ac.id}" style="flex:1; padding:5px 8px; font-size:11px;">
-                    ⬆️ Subir al 1er Equipo
+                <div style="display: flex; gap:6px;">
+                  <button class="btn-promote-academy-player fm-btn fm-btn-primary" data-acid="${ac.id}" style="flex: 1; padding:5px 8px; font-size:11px;">
+                    ↑ Subir al 1er Equipo
                   </button>
                   <button class="btn-release-academy-player fm-btn fm-btn-ghost" data-acid="${ac.id}" style="padding:5px 8px; font-size:11px; color:#fca5a5;">
-                    ✕
+                    ×
                   </button>
                 </div>
               </div>
@@ -414,10 +413,10 @@ export function renderStaffTab(state) {
         </div>
       ` : ""}
 
-      <div style="padding-top:10px; border-top:1px solid var(--panel-border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+      <div style="padding-top:10px; border-top: 1px solid var(--panel-border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
         <span style="font-size:12px; color:var(--text-muted);">Promoción directa rápida de cantera local (1 por temporada):</span>
-        <button id="btn-promote-youth" class="fm-btn fm-btn-ghost" ${youthPromotedThisSeason ? 'disabled style="opacity:0.45; cursor:not-allowed;"' : ''} style="font-size:12px; padding:6px 12px;">
-          ${youthPromotedThisSeason ? '✓ Promoción directa usada esta temporada' : '🌱 Promoción Directa Rápida (1.50 M€)'}
+        <button id="btn-promote-youth" class="fm-btn fm-btn-ghost" ${youthPromotedThisSeason ? 'disabled style="opacity:0.45; cursor:not-allowed;"' : ""} style="font-size:12px; padding:6px 12px;">
+          ${youthPromotedThisSeason ? '✓ Promoción directa usada esta temporada' : '⚡ Promoción Directa Rápida (1.50 M€)'}
         </button>
       </div>
     </div>
@@ -430,7 +429,9 @@ export function renderStaffTab(state) {
           const isSelected = activePlan === plan.key;
           return `
             <button class="btn-training-plan" data-plan="${plan.key}" style="text-align: left; background: ${isSelected ? 'linear-gradient(135deg, rgba(59,130,246,0.22), rgba(30,41,59,0.85))' : 'rgba(6,9,19,0.75)'}; border: 2px solid ${isSelected ? 'var(--primary)' : 'var(--panel-border)'}; border-radius: 12px; padding: 14px; color: #fff; cursor: pointer; transition: all 0.15s ease;">
-              <div style="font-weight: 800; margin-bottom: 6px; color: ${isSelected ? '#60a5fa' : '#fff'};">${isSelected ? '✓ ' : ''}${plan.name}</div>
+              <div style="font-weight: 800; margin-bottom: 6px; color: ${isSelected ? '#60a5fa' : '#fff'};">
+                ${isSelected ? '✓ ' : ''}${plan.name}
+              </div>
               <div style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">${plan.desc}</div>
             </button>
           `;
@@ -453,7 +454,9 @@ export function renderStaffTab(state) {
               <div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                   <b>${item.name}</b>
-                  <span style="background: rgba(59,130,246,0.2); color: #60a5fa; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 700;">Nvl ${lvl}/${item.maxLevel}</span>
+                  <span style="background: rgba(59,130,246,0.2); color: #60a5fa; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 700;">
+                    Nvl ${lvl}/${item.maxLevel}
+                  </span>
                 </div>
                 <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">${item.desc}</p>
               </div>
@@ -478,7 +481,6 @@ export function renderTacticsTab(state) {
   const starters = Object.values(state.players || {})
     .filter(p => p.clubId === state.userClubId && p.starter && !isPlayerUnavailable(p))
     .slice(0, 11);
-
   const assigned = assignPlayersToSlots(starters, formation);
   const outOfPosCount = assigned.filter(a => a.outOfPosition).length;
   const shiftPreview = ((t.mentality - 50) / 50) * 16;
@@ -493,7 +495,7 @@ export function renderTacticsTab(state) {
       <div class="fm-card">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
           <h3 style="margin: 0;">Pizarra Táctica (${formation})</h3>
-          <div style="display:flex; align-items:center; gap:8px;">
+          <div style="display: flex; align-items:center; gap:8px;">
             <button class="btn-auto-best-xi fm-btn fm-btn-primary" style="padding:4px 10px; font-size:11px;">⚡ Mejor XI</button>
             ${outOfPosCount > 0
               ? `<span style="color: #fbbf24; font-size: 12px; font-weight: 700;">⚠️ ${outOfPosCount} fuera de puesto</span>`
@@ -588,12 +590,12 @@ export function renderTransfersTab(state) {
   const minOvrFilter = Number(state.marketMinOvr || 0);
   const searchQuery = (state.marketSearchQuery || "").trim();
   const queryLower = searchQuery.toLowerCase();
-  const winStatus = getTransferWindowStatus(state);
+  const breakdown = isFree ? null : getDynamicValuationBreakdown(p, scoutLvl, state);
+  const val = isFree ? getFreeAgentSignBonus(p) : breakdown.finalPrice;
 
   const allExternal = Object.values(state.players || {}).filter(
     p => p.clubId !== state.userClubId && p.clubId !== "legend_vault"
   );
-
   const filtered = allExternal.filter(p => {
     if (posFilter !== "ALL" && p.pos !== posFilter) return false;
     if (leagueFilter === "FREE") {
@@ -619,13 +621,8 @@ export function renderTransfersTab(state) {
     <div class="fm-card">
       <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 14px;">
         <div>
-          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-            <h3 style="margin: 0;">Mercado Mundial y Agentes Libres (${filtered.length} resultados)</h3>
-            <span style="font-size:11px; font-weight:800; padding:3px 9px; border-radius:99px; background:${winStatus.isDeadlineDay ? 'rgba(239,68,68,0.22)' : 'rgba(59,130,246,0.18)'}; color:${winStatus.isDeadlineDay ? '#fca5a5' : '#93c5fd'}; border:1px solid ${winStatus.isDeadlineDay ? 'rgba(239,68,68,0.45)' : 'rgba(59,130,246,0.35)'};">
-              ${winStatus.label}
-            </span>
-          </div>
-          <small style="color: var(--text-muted);">Descuento Ojeador Nvl ${scoutLvl}: <b>-${(scoutLvl - 1) * 6}%</b> • Haz clic en un jugador o en <b>Negociar</b> para abrir su tasación detallada</small>
+          <h3 style="margin: 0;">Mercado Mundial y Agentes Libres (${filtered.length} resultados)</h3>
+          <small style="color: var(--text-muted);">Descuento Ojeador Nvl ${scoutLvl}: <b>-${(scoutLvl - 1) * 6}%</b> · Haz clic en un jugador para abrir su ficha</small>
         </div>
         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
           <button class="btn-filter-league fm-btn ${leagueFilter === 'ALL' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="ALL" style="padding: 5px 9px; font-size: 11px;">Todas</button>
@@ -644,8 +641,8 @@ export function renderTransfersTab(state) {
           <input id="market-search-input" type="text" value="${searchQuery.replace(/"/g, "&quot;")}" placeholder="Ej: Leyton, Gutierrez, Rave, Galvis..." style="width:100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
         </div>
         <div>
-          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">Rango de Edad</label>
-          <select id="market-age-select" style="width:100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
+          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">🎂 Rango de Edad</label>
+          <select id="market-age-select" style="width: 100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
             <option value="ALL" ${ageFilter === "ALL" ? "selected" : ""}>Todas las edades</option>
             <option value="U21" ${ageFilter === "U21" ? "selected" : ""}>Sub-21 (Promesas ≤ 21a)</option>
             <option value="PRIME" ${ageFilter === "PRIME" ? "selected" : ""}>Plenitud (22 - 28 años)</option>
@@ -653,7 +650,7 @@ export function renderTransfersTab(state) {
           </select>
         </div>
         <div>
-          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">Media Mínima (OVR)</label>
+          <label style="display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">⭐ Media Mínima (OVR)</label>
           <select id="market-ovr-select" style="width:100%; background:#0f172a; color:#fff; border:1px solid var(--panel-border); border-radius:8px; padding:7px 10px; font-size:12.5px;">
             <option value="0" ${minOvrFilter === 0 ? "selected" : ""}>Cualquier OVR</option>
             <option value="75" ${minOvrFilter === 75 ? "selected" : ""}>OVR 75+ (Titular Liga)</option>
@@ -687,7 +684,7 @@ export function renderTransfersTab(state) {
               <th>Pos</th>
               <th>Edad</th>
               <th>OVR</th>
-              <th>Coste y Desglose</th>
+              <th>Coste</th>
               <th>Negociación</th>
             </tr>
           </thead>
@@ -704,8 +701,7 @@ export function renderTransfersTab(state) {
                 DEF: Math.min(99, baseAttrs.DEF + (boosts.DEF || 0))
               };
               const isFree = p.clubId === "free_agent";
-              const breakdown = isFree ? null : getDynamicValuationBreakdown(p, scoutLvl, state);
-              const val = isFree ? getFreeAgentSignBonus(p) : breakdown.finalPrice;
+              const val = isFree ? getFreeAgentSignBonus(p) : calculateMarketValue(p, scoutLvl);
               const lowVal = Math.round(val * 0.82);
               const loanVal = Math.max(400000, Math.round(val * 0.25));
               const canBuy = (state.budget || 0) >= val;
@@ -713,12 +709,13 @@ export function renderTransfersTab(state) {
               const canLoan = !isFree && (state.budget || 0) >= loanVal && !p.isLoaned;
               const c = state.clubs[p.clubId];
               const friendOwner = humanManagers.find(m => m.clubId === p.clubId);
+              const winStatus = getTransferWindowStatus(state);
 
               return `
                 <tr>
                   <td>
-                    <span class="btn-inspect-player" data-pid="${p.id}" style="cursor: pointer; font-weight: 800; text-decoration: underline; text-decoration-color: rgba(59,130,246,0.55);">${p.name}</span>
-                    ${p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">★ LEYENDA</span>` : p.isRegen ? `<span style="background:rgba(16,185,129,0.22); color:#34d399; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">REGEN</span>` : ""}
+                    <span class="btn-inspect-player" data-pid="${p.id}" style="cursor: pointer; font-weight: 800; text-decoration: underline; text-decoration-color: rgba(96,165,250,0.5);">${p.name}</span>
+                    ${p.isCustomLegend ? `<span style="background:rgba(250,204,21,0.22); color:#fde047; font-size: 10px; padding:1px 6px; border-radius: 4px; font-weight:800; margin-left:4px;">★ LEYENDA</span>` : p.isRegen ? `<span style="background:rgba(16,185,129,0.22); color:#34d399; font-size: 10px; padding:1px 6px; border-radius:4px; font-weight:800; margin-left:4px;">REGEN</span>` : ""}
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px; display: flex; gap:8px;">
                       <span>RIT <b style="color:#e2e8f0;">${attrs.RIT}</b></span>
                       <span>TIR <b style="color:#e2e8f0;">${attrs.TIR}</b></span>
@@ -729,23 +726,17 @@ export function renderTransfersTab(state) {
                   <td style="color: var(--text-muted);">
                     ${isFree
                       ? `<span style="background:rgba(16,185,129,0.2); color:#34d399; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:800;">🆓 Agente Libre</span>`
-                      : `${renderClubBadge(c, 20)} <b>${c?.name || "-"}</b> ${friendOwner ? `<span style="background:rgba(249,115,22,0.22); color:#fdba74; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:800;">🎮 ${friendOwner.name}</span>` : `<small>(${c?.flag || ""})</small>`}`}
+                      : `${renderClubBadge(c, 20)} <b>${c?.name || "-"}</b> ${friendOwner ? `<span style="background:rgba(249,115,22,0.22); color:#fdba74; font-size: 10px; padding:1px 6px; border-radius:4px; font-weight:800;">👤 ${friendOwner.name}</span>` : `<small>(${c?.flag || ""})</small>`}`}
                   </td>
                   <td><span class="fm-badge-pos">${p.pos}</span></td>
                   <td>${p.age}a</td>
                   <td>${renderOvrBadge(p.ovr)}</td>
-                  <td>
-                    <b>${(val / 1e6).toFixed(2)} M€</b>
-                    ${isFree ? `<small style="color:#34d399; display:block; font-size:10px;">Prima firma</small>` : `
-                      <div style="display:flex; flex-wrap:wrap; gap:3px; margin-top:3px; max-width:190px;">
-                        ${(breakdown?.modifiers || []).slice(0, 2).map(m => `
-                          <span style="font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:4px; background:${m.tone === "down" ? "rgba(16,185,129,0.18)" : "rgba(245,158,11,0.18)"}; color:${m.tone === "down" ? "#34d399" : "#fbbf24"};">
-                            ${m.label} ${m.pct}
-                          </span>
-                        `).join("")}
-                      </div>
-                    `}
-                  </td>
+                  <td><b>${(val / 1e6).toFixed(2)} M€</b> ${isFree ? `<small style="color:#34d399; display:block; font-size: 10px;">Prima firma</small>` : ""}</td>
+                  ${breakdown?.modifiers?.slice(0, 2).map(m => `
+  <span style="display:inline-block; font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:4px; margin-top:2px; background:${m.tone === "down" ? "rgba(16,185,129,0.18)" : "rgba(245,158,11,0.18)"}; color:${m.tone === "down" ? "#34d399" : "#fbbf24"};">
+    ${m.label} ${m.pct}
+  </span>
+`).join(" ") || ""}
                   <td>
                     ${isFree ? `
                       <button class="btn-sign-free-agent fm-btn ${canBuy ? 'fm-btn-primary' : ''}" data-pid="${p.id}" ${!canBuy ? 'disabled' : ''} style="padding: 5px 11px; font-size: 11px; ${!canBuy ? 'background:#334155; opacity:0.45; cursor:not-allowed;' : ''}">
@@ -756,11 +747,8 @@ export function renderTransfersTab(state) {
                         <button class="btn-buy-player fm-btn ${canBuy ? 'fm-btn-primary' : ''}" data-pid="${p.id}" ${!canBuy ? 'disabled' : ''} title="Compra inmediata" style="padding: 5px 9px; font-size: 11px; ${!canBuy ? 'background:#334155; opacity:0.45; cursor:not-allowed;' : ''}">
                           Fichar
                         </button>
-                        <button class="btn-inspect-player fm-btn fm-btn-ghost" data-pid="${p.id}" title="Abrir Sala de Negociación y Desglose" style="padding: 5px 8px; font-size: 11px; border-color: rgba(59,130,246,0.45); color: #93c5fd;">
-                          🤝 Negociar
-                        </button>
-                        <button class="btn-lowball-player fm-btn fm-btn-ghost" data-pid="${p.id}" ${!canLow ? 'disabled' : ''} title="Oferta rápida a la baja (-18%)" style="padding: 5px 8px; font-size: 11px; border-color: rgba(245,158,11,0.45); color: #fde047; ${!canLow ? 'opacity:0.4; cursor:not-allowed;' : ''}">
-                          ${(lowVal/1e6).toFixed(1)}M
+                        <button class="btn-lowball-player fm-btn fm-btn-ghost" data-pid="${p.id}" ${!canLow ? 'disabled' : ''} title="Oferta a la baja (-18%)" style="padding: 5px 8px; font-size: 11px; border-color: rgba(245, 158, 11, 0.45); color: #fde047; ${!canLow ? 'opacity:0.4; cursor:not-allowed;' : ''}">
+                          ${(lowVal / 1e6).toFixed(1)}M
                         </button>
                         <button class="btn-loan-player fm-btn fm-btn-ghost" data-pid="${p.id}" ${!canLoan ? 'disabled' : ''} title="Cesión 1 temporada (25%)" style="padding: 5px 8px; font-size: 11px; border-color: rgba(168,85,247,0.45); color: #d8b4fe; ${!canLoan ? 'opacity:0.4; cursor:not-allowed;' : ''}">
                           Ceder (${(loanVal / 1e6).toFixed(1)}M)
@@ -783,8 +771,8 @@ export function renderInboxTab(state) {
   return `
     <div class="fm-card">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-        <h3 style="margin: 0;">Centro de Comunicaciones y Eventos IA</h3>
-        <button id="btn-gen-event" class="fm-btn fm-btn-ai">✨ Simular Evento IA</button>
+        <h3 style="margin: 0;">Despacho del Mánager y Sala de Prensa</h3>
+<button id="btn-gen-event" class="fm-btn fm-btn-ai">📰 Nuevo Comunicado / Evento</button>
       </div>
       ${messages.length === 0 ? `<p style="color: var(--text-muted);">No hay mensajes nuevos. Juega un partido o genera un evento.</p>` : ""}
       <div style="display: grid; gap: 14px;">

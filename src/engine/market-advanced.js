@@ -182,7 +182,7 @@ export function submitInteractiveOffer(playerId, offeredCash, contractYears = 4)
     return {
       ok: true,
       isCounter: true,
-      msg: `📨 ${sellerClub} respondió con una contraoferta de ${(counterPrice / 1e6).toFixed(2)} M€. Revisa tu Bandeja IA.`
+      msg: `📨 ${sellerClub} respondió con una contraoferta de ${(counterPrice / 1e6).toFixed(2)} M€. Revisa tu Despacho y Prensa.`
     };
   }
 

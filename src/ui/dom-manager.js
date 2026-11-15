@@ -290,7 +290,7 @@ function render() {
             ${renderTabBtn("tactics", "📋 Pizarra Táctica", activeTab, userClub.colors[0])}
             ${renderTabBtn("staff", "🏗️ Academia y Staff", activeTab, userClub.colors[0])}
             ${renderTabBtn("transfers", "💼 Mercado Global", activeTab, userClub.colors[0])}
-            ${renderTabBtn("inbox", "📩 Bandeja IA", activeTab, userClub.colors[0], unreadCount)}
+            ${renderTabBtn("inbox", "📩 Despacho y Prensa", activeTab, userClub.colors[0], unreadCount)}
             ${renderTabBtn("table", "🏆 Competiciones", activeTab, userClub.colors[0])}
           </nav>
         </div>
@@ -391,7 +391,7 @@ function handleSeasonEndHooks(seasonNum) {
   ensureCareerHooksState();
   syncCurrentManagerSnapshot();
   syncOnlineIfActive();
-  showToast(`🏆 ¡Temporada ${seasonNum} Finalizada! Revisa Bandeja IA (Gala y Regens) y Salón de la Fama.`, "success", 5800);
+  showToast(`🏆 ¡Temporada ${seasonNum} Finalizada! Revisa Despacho y Prensa (Gala y Regens) y Salón de la Fama.`, "success", 5800);
 }
 
 function runQuickSimulationFlow() {
