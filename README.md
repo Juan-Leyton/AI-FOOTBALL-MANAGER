@@ -144,14 +144,25 @@ npm run preview
 5. Tecnologías Utilizadas y Enlaces de ReferenciaTecnologíaRol en el ProyectoDocumentación
   
    OficialJavaScript (ES2022+ / ES Modules)Lenguaje principal de toda la lógica de simulación, gestión de estado, algoritmos económicos y control del DOM, sin sobrecarga de frameworks pesados.
+   
    MDN Web Docs — JavaScriptVite 8 & VitestEmpaquetador de módulos ultrarrápido con soporte nativo para ES Modules, compilación optimizada y runner de pruebas unitarias automatizadas.
+   
    Documentación de Vite / VitestIndexedDB & LocalStorageAlmacenamiento asíncrono de alto rendimiento para partidas completas y estados transitorios en memoria RAM durante partidos en vivo.
+   
    MDN — IndexedDB APIHTML5 Canvas & SVG DinámicoRenderizado 2D en tiempo real del terreno de juego, movimiento de jugadores y balón (Canvas), además de generación procedural de escudos y camisetas (SVG).
+   
    MDN — Canvas APIWeb Audio APISíntesis de efectos de sonido en tiempo real (silbato del árbitro, golpes de balón, celebraciones de gol) sin necesidad de descargar archivos .mp3 externos.
+   
    MDN — Web Audio APIProgressive Web App (PWA)Configuración mediante manifest.json y sw.js (Service Worker con invalidación automática de caché) para instalación en dispositivos y juego sin conexión.
+
    MDN — Progressive Web AppsSupabasePlataforma Backend-as-a-Service basada en PostgreSQL utilizada para almacenar y sincronizar el estado JSON de las salas multijugador online.
+   
    Documentación de SupabaseVercelPlataforma de alojamiento en la nube y despliegue continuo (CI/CD) integrada con GitHub para servir la aplicación globalmente mediante CDN.Documentación de Vercel6.
+   
    Arquitectura Detallada del ProyectoEl código fuente de World Soccer Web Manager está estructurado bajo una arquitectura modular separada por responsabilidades dentro del directorio src/, complementada por pruebas unitarias en tests/ y especificaciones técnicas en docs/:Plaintextworld-soccer-web-manager/
+
+
+   
 ├── docs/
 │   └── specs/                  # Especificaciones funcionales y reglas de negocio (Spec-Driven Dev)
 ├── tests/
