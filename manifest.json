@@ -1,6 +1,7 @@
 {
-  "name": "Football Manager Indie 2D",
-  "short_name": "FM Indie",
+  "name": "World Soccer Web Manager",
+  "short_name": "WSWM 26",
+  "description": "Simulador web de gestión y dirección técnica de fútbol.",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#090d16",
