@@ -399,7 +399,7 @@ function render() {
           </div>
 
           <div style="font-size: 12px; color: var(--text-muted); font-weight: 700;">
-            WORLD FOOTBALL MANAGER <span style="color: #3b82f6;">2026</span>
+            WORLD SOCCER WEB MANAGER <span style="color: #3b82f6;">26</span>
           </div>
         </header>
 
@@ -1656,7 +1656,7 @@ function renderClubSelection(state) {
           TEMPORADA 2026 • 10 LIGAS MUNDIALES (EUROPA Y SUDAMÉRICA) • 120 CLUBES
         </div>
         <h1 style="font-size: 32px; font-weight: 900; letter-spacing: -0.02em; margin-bottom: 8px;">
-          WORLD FOOTBALL MANAGER <span style="color: #3b82f6;">2026</span>
+          WORLD SOCCER WEB MANAGER <span style="color: #3b82f6;">26</span>
         </h1>
         <p style="color: var(--text-muted); max-width: 620px; margin: 0 auto 18px; font-size: 14px;">
           Dirige en solitario, arma una sala compartida con tus amigos o conéctate por código desde cualquier computadora o celular.
