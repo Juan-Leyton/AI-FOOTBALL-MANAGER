@@ -17,7 +17,12 @@ import {
   maybeGenerateIncomingOffer,
   respondToTransferOffer
 } from "../engine/transfers.js";
-import { makeLowballOffer, loanPlayer } from "../engine/market-advanced.js";
+import {
+  makeLowballOffer,
+  loanPlayer,
+  submitInteractiveOffer,
+  resolveNegotiationCounter
+} from "../engine/market-advanced.js";
 import { runEndOfSeasonTransition } from "../engine/season-transition.js";
 import { autoPickBestXI } from "../engine/squad-manager.js";
 import { simulateQuickMatch } from "../engine/quick-sim.js";
@@ -139,11 +144,9 @@ export function initUI() {
   ensureFreeAgentsPool();
   injectCustomLegends();
   ensureCareerHooksState();
-
   if (store.get().onlineRoomCode) {
     startOnlineAutoSync();
   }
-
   store.subscribe(render);
   render();
 }
@@ -186,7 +189,6 @@ function render() {
     } else {
       updateLiveMatchDynamicParts(state);
     }
-
     renderTacticsExtrasUI();
     renderEnhancedPitch(document.getElementById("pitch-canvas"), state.liveMatch, state.clubs);
     return;
@@ -222,7 +224,7 @@ function render() {
           <div class="fm-sidebar-club" style="--club-accent: ${userClub.colors[0]}; background: linear-gradient(165deg, ${userClub.colors[0]}38, rgba(9,13,22,0.96) 65%);">
             ${isMp && activeMgr ? `
               <div style="background:rgba(59,130,246,0.22); border:1px solid rgba(59,130,246,0.45); color:#93c5fd; font-size:10.5px; font-weight:800; padding:3px 8px; border-radius:99px; margin-bottom:8px;">
-                ${isOnline ? "🌐" : "👤"} ${activeMgr.name.toUpperCase()}
+                ${isOnline ? "🌐" : "🎮"} ${activeMgr.name.toUpperCase()}
               </div>
             ` : ""}
             <div style="margin: 0 auto 8px; display: flex; justify-content:center; filter: drop-shadow(0 6px 14px rgba(0,0,0,0.65));">
@@ -230,32 +232,32 @@ function render() {
             </div>
             <h2 style="font-size: 16px; font-weight: 900; letter-spacing: -0.01em; margin-bottom: 2px;">${userClub.name}</h2>
             <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">
-              ${userClub.flag || ""} ${userClub.leagueName || "Primera División"} · T${state.season || 1} · J${Math.min(22, leagueRound)}/22
+              ${userClub.flag || ""} ${userClub.leagueName || "Primera División"} • T${state.season || 1} • J${Math.min(22, leagueRound)}/22
             </div>
             <div style="text-align:left; font-size:11px; color:var(--text-muted); margin-bottom:4px;">Confianza Directiva</div>
             ${renderMiniBar(boardConf, confColor)}
           </div>
 
           ${isMp ? `
-            <div style="background:rgba(6,9,19,0.75); border:1px solid var(--panel-border); border-radius: 12px; padding: 8px; margin-bottom:10px;">
+            <div style="background:rgba(6,9,19,0.75); border:1px solid var(--panel-border); border-radius:12px; padding:8px; margin-bottom:10px;">
               ${isOnline ? `
-                <div style="background:rgba(16,185,129,0.16); border:1px solid rgba(16,185,129,0.4); border-radius:8px; padding:6px 8px; margin-bottom:7px; display: flex; justify-content:space-between; align-items:center;">
+                <div style="background:rgba(16,185,129,0.16); border:1px solid rgba(16,185,129,0.4); border-radius:8px; padding:6px 8px; margin-bottom:7px; display:flex; justify-content:space-between; align-items:center;">
                   <div>
                     <div style="font-size:9.5px; color:#6ee7b7; font-weight:800; text-transform:uppercase;">Sala Online Activa</div>
-                    <b style="font-size: 13px; letter-spacing:0.08em; color:#fff;">${state.onlineRoomCode}</b>
+                    <b style="font-size:13px; letter-spacing:0.08em; color:#fff;">${state.onlineRoomCode}</b>
                   </div>
-                  <div style="display: flex; gap:4px;">
+                  <div style="display:flex; gap:4px;">
                     <button id="btn-copy-room-code" class="fm-btn fm-btn-ghost" title="Copiar código" style="padding:4px 7px; font-size:11px;">📋</button>
                     <button id="btn-manual-sync-online" class="fm-btn fm-btn-ghost" title="Sincronizar ahora" style="padding:4px 7px; font-size:11px;">🔄</button>
                   </div>
                 </div>
               ` : `
-                <button id="btn-publish-online-room" class="fm-btn fm-btn-ghost" style="width:100%; padding:6px 8px; font-size: 11px; margin-bottom:7px; border-color:rgba(16,185,129,0.5); color:#34d399; font-weight:800;">
+                <button id="btn-publish-online-room" class="fm-btn fm-btn-ghost" style="width:100%; padding:6px 8px; font-size:11px; margin-bottom:7px; border-color:rgba(16,185,129,0.5); color:#34d399; font-weight:800;">
                   🌐 Publicar Sala Online
                 </button>
               `}
 
-              <div style="font-size: 10px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom: 6px; padding:0 4px;">
+              <div style="font-size:10px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px; padding:0 4px;">
                 Mánagers (${state.mpManagers.length})
               </div>
               <div style="display:grid; gap:4px; margin-bottom:${isOnline ? "2px" : "7px"};">
@@ -265,19 +267,18 @@ function render() {
                   const doneRound = Boolean(mLg?.playedThisRound?.[m.clubId]);
                   const isCurrent = i === activeMgrIdx;
                   return `
-                    <button class="btn-switch-manager" data-midx="${i}" ${isOnline ? "disabled" : ""} style="display: flex; justify-content: space-between; align-items: center; background: ${isCurrent ? "rgba(59,130,246,0.22)" : "rgba(15,23,42,0.85)"}; border:1px solid ${isCurrent ? "#3b82f6" : "rgba(255, 255, 255, 0.07)"}; color: #fff; padding: 5px 8px; border-radius: 8px; font-size: 11.5px; cursor: ${isOnline ? "default" : "pointer"}; text-align:left;">
+                    <button class="btn-switch-manager" data-midx="${i}" ${isOnline ? "disabled" : ""} style="display:flex; justify-content:space-between; align-items:center; background:${isCurrent ? "rgba(59,130,246,0.22)" : "rgba(15,23,42,0.85)"}; border:1px solid ${isCurrent ? "#3b82f6" : "rgba(255,255,255,0.07)"}; color:#fff; padding:5px 8px; border-radius:8px; font-size:11.5px; cursor:${isOnline ? "default" : "pointer"}; text-align:left;">
                       <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                        <b>${m.name}</b> <small style="color: var(--text-muted);">(${mClub?.name?.split(" ")[0] || ""})</small>
+                        <b>${m.name}</b> <small style="color:var(--text-muted);">(${mClub?.name?.split(" ")[0] || ""})</small>
                       </span>
                       <span style="font-weight:800; color:${doneRound ? "#34d399" : "#fbbf24"};">${doneRound ? "✓" : "⏳"}</span>
                     </button>
                   `;
                 }).join("")}
               </div>
-
               ${!isOnline ? `
                 <button id="btn-next-manager-turn" class="fm-btn fm-btn-primary" style="width:100%; padding:6px 8px; font-size:11px;">
-                  Pasar Turno → ${nextMgr?.name || ""}
+                  🔄 Pasar Turno → ${nextMgr?.name || ""}
                 </button>
               ` : ""}
             </div>
@@ -314,7 +315,7 @@ function render() {
           <div class="fm-kpi-group">
             ${isMp && activeMgr ? `
               <div class="fm-kpi-pill" style="border-color:rgba(59,130,246,0.45);">
-                <span>${isOnline ? "🌐" : "👤"}</span>
+                <span>${isOnline ? "🌐" : "🎮"}</span>
                 <div>
                   <small>${isOnline ? `SALA ${state.onlineRoomCode}` : "MÁNAGER ACTIVO"}</small><br>
                   <b style="color: #93c5fd;">${activeMgr.name}</b>
@@ -402,7 +403,6 @@ function runQuickSimulationFlow() {
     if (res.needsLineup) store.update(["activeTab"], draft => { draft.activeTab = "squad"; });
     return;
   }
-
   const stAfter = store.get();
   const won = res.outcome === "success";
   grantManagerXp(won ? 180 : res.outcome === "info" ? 90 : 40, "Partido jugado");
@@ -447,12 +447,12 @@ function bindEvents(state) {
 
   document.getElementById("btn-manual-sync-online")?.addEventListener("click", async () => {
     const updated = await pullOnlineWorldState();
-    showToast(updated ? "🔄 Sala sincronizada con los últimos movimientos." : "✓ Tu sala ya está al día.", "info");
+    showToast(updated ? "✅ Sala sincronizada con los últimos movimientos." : "✔️ Tu sala ya está al día.", "info");
   });
 
   document.getElementById("btn-home-check-sync")?.addEventListener("click", async () => {
     const updated = await pullOnlineWorldState();
-    showToast(updated ? "🎉 ¡Estado actualizado!" : "⏳ Tus amigos aún no terminan su partido.", "info");
+    showToast(updated ? "✅ ¡Estado actualizado!" : "⏳ Tus amigos aún no terminan su partido.", "info");
   });
 
   document.querySelectorAll(".nav-tab").forEach(btn => {
@@ -572,8 +572,8 @@ function bindEvents(state) {
       if (!p || isPlayerUnavailable(p)) return;
       store.update(["players"], draft => {
         draft.players[pid].starter = !draft.players[pid].starter;
-        syncOnlineIfActive();
       });
+      syncOnlineIfActive();
     });
   });
 
@@ -665,8 +665,8 @@ function bindEvents(state) {
       const form = btn.dataset.form;
       store.update(["clubs"], draft => {
         draft.clubs[state.userClubId].formation = form;
-        syncOnlineIfActive();
       });
+      syncOnlineIfActive();
     });
   });
 
@@ -675,8 +675,8 @@ function bindEvents(state) {
       const kit = btn.dataset.kit;
       store.update(["clubs"], draft => {
         draft.clubs[state.userClubId].kitMode = kit;
-        syncOnlineIfActive();
       });
+      syncOnlineIfActive();
     });
   });
 
@@ -746,6 +746,9 @@ function bindEvents(state) {
       const idx = Number(btn.dataset.idx);
       if (btn.dataset.type === "transfer_offer") {
         respondToTransferOffer(evId, idx);
+      } else if (btn.dataset.type === "negotiation_counter") {
+        const res = resolveNegotiationCounter(evId, idx);
+        if (res?.msg) showToast(res.msg, res.ok ? "success" : "warning");
       } else {
         resolveInboxChoice(evId, idx);
       }
@@ -760,6 +763,7 @@ function bindEvents(state) {
       const val = Number(slider.value);
       const labelEl = document.getElementById(`val-${key}`);
       if (labelEl) labelEl.textContent = `${val}%`;
+
       if (key === "mentality") {
         const shift = ((val - 50) / 50) * 16;
         document.querySelectorAll(".tactic-node").forEach(node => {
@@ -778,8 +782,8 @@ function bindEvents(state) {
           draft.clubs[state.userClubId].tactics = { mentality: 55, tempo: 55, press: 55 };
         }
         draft.clubs[state.userClubId].tactics[key] = val;
-        syncOnlineIfActive();
       });
+      syncOnlineIfActive();
     });
   });
 }
@@ -870,6 +874,25 @@ document.addEventListener("click", async e => {
     return;
   }
 
+  const submitNegBtn = e.target.closest("#btn-submit-negotiation");
+  if (submitNegBtn) {
+    const pid = submitNegBtn.dataset.pid;
+    const targetPlayer = store.get().players?.[pid];
+    const offerVal = Number(document.getElementById("neg-offer-slider")?.value || 0);
+    const res = submitInteractiveOffer(pid, offerVal, 4);
+    showToast(res.msg, res.ok ? "success" : "warning", 5000);
+    if (res.ok) {
+      if (!res.isCounter && (targetPlayer?.age || 25) <= 21) {
+        evaluateObjectivesProgress({ signedU21: true });
+      }
+      syncCurrentManagerSnapshot();
+      syncOnlineIfActive();
+      inspectedPlayerId = null;
+      render();
+    }
+    return;
+  }
+
   const modalRetrainBtn = e.target.closest(".btn-modal-retrain");
   if (modalRetrainBtn) {
     const res = retrainPlayerPosition(modalRetrainBtn.dataset.pid, modalRetrainBtn.dataset.pos);
@@ -899,8 +922,8 @@ document.addEventListener("click", async e => {
       syncCurrentManagerSnapshot();
       syncOnlineIfActive();
       inspectedPlayerId = null;
-      render();
     }
+    render();
     return;
   }
 
@@ -1082,6 +1105,10 @@ document.addEventListener("input", e => {
   if (e.target.classList.contains("mp-slot-name")) {
     const idx = Number(e.target.dataset.idx);
     if (mpDraftSlots[idx]) mpDraftSlots[idx].name = e.target.value;
+  }
+  if (e.target.id === "neg-offer-slider") {
+    const disp = document.getElementById("neg-offer-display");
+    if (disp) disp.textContent = `${(Number(e.target.value) / 1e6).toFixed(2)} M€`;
   }
 });
 

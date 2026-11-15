@@ -2,6 +2,7 @@ import { store } from "../core/state.js";
 import { initCompetitions } from "./competitions.js";
 import { TRAINING_PLANS } from "./training.js";
 import { SPONSORS_CATALOG, getRealisticWeeklyWage } from "./economy-market.js";
+import { simulateAiMarketActivity } from "./market-advanced.js";
 
 export function renewPlayerContract(playerId) {
   const state = store.get();
@@ -95,6 +96,7 @@ export function processRoundProgression(wasUserHome = true) {
     };
 
     Object.values(draft.players).forEach(p => {
+      if (p.clubId === "legend_vault") return;
       if (p.contractYears === undefined) p.contractYears = Math.floor(Math.random() * 4) + 1;
 
       if (p.clubId === draft.userClubId) {
@@ -127,6 +129,9 @@ export function processRoundProgression(wasUserHome = true) {
       }
     });
   });
+
+  // Mercado vivo de IA entre clubes rivales
+  simulateAiMarketActivity();
 }
 
 export function advanceSeason() {
@@ -152,6 +157,7 @@ export function advanceSeason() {
     const expiredNames = [];
 
     Object.values(draft.players).forEach(p => {
+      if (p.clubId === "legend_vault") return;
       p.age += 1;
       p.stamina = 100;
       p.goals = 0;
