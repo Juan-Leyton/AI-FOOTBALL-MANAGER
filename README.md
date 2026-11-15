@@ -1,4 +1,4 @@
-Markdown# World Soccer Web Manager (WSWM 26)
+World Soccer Web Manager (WSWM 26)
 
 > **Simulador web de gestión futbolística, dirección deportiva, economía de clubes y táctica en tiempo real, diseñado bajo estándares Progressive Web App (PWA) y desplegado en producción mediante Vercel.**
 
