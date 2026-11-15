@@ -163,65 +163,68 @@ npm run preview
 
 
    
-├── docs/
-│   └── specs/                  # Especificaciones funcionales y reglas de negocio (Spec-Driven Dev)
-├── tests/
-│   └── transfers.test.js       # Suite de pruebas unitarias de mercado y traspasos (Vitest)
-├── src/
-│   ├── ai/
-│   │   └── director.js         # Motor narrativo: eventos post-partido, prensa, vestuario y decisiones
-│   ├── core/
-│   │   ├── state.js            # Store central reactivo, sistema de suscripciones y persistencia
-│   │   └── storage-idb.js      # Adaptador de almacenamiento asíncrono en IndexedDB
-│   ├── data/
-│   │   ├── world-database.js   # Catálogo maestro de ligas, clubes, colores, estadios y plantillas
-│   │   ├── database.js         # Funciones auxiliares y estructuras de datos iniciales
-│   │   └── custom-legends.js   # Base de datos de futbolistas históricos y leyendas especiales
-│   ├── engine/
-│   │   ├── match-live.js       # Simulación tick a tick en vivo, IA rival, tácticas y sustituciones
-│   │   ├── quick-sim.js        # Resolución instantánea ponderada por los 11 titulares y forma física
-│   │   ├── competitions.js     # Generador de calendarios, tablas de posiciones, copas y cruces
-│   │   ├── transfers.js        # Valoración dinámica exponencial, desglose, compras y ventas
-│   │   ├── market-advanced.js  # Sala de negociación interactiva, contraofertas, cesiones y mercado IA
-│   │   ├── economy-market.js   # Escala salarial realista, ventanas de fichajes, Deadline Day y sponsors
-│   │   ├── progression.js      # Avance de jornada, balance financiero semanal y renovaciones
-│   │   ├── season-transition.js# Cierre de campaña, premios, Salón de la Fama y nueva temporada
-│   │   ├── world-longevity.js  # Envejecimiento, retiros por edad y creación de promesas (regens)
-│   │   ├── youth-scouting.js   # Ojeo juvenil por regiones y gestión de la Academia Sub-18
-│   │   ├── player-development.js# Pool de agentes libres, cambio de posición y enfoque individual
-│   │   ├── medical.js          # Gestión de lesiones, recuperación física y sanciones por tarjetas
-│   │   ├── squad-manager.js    # Algoritmo de selección automática del mejor XI disponible
-│   │   ├── tactics-roles.js    # Definición de formaciones, coordenadas y penalización fuera de puesto
-│   │   ├── staff.js            # Catálogo y mejoras de cuerpo técnico, ojeadores y estadio
-│   │   ├── stadium.js          # Cálculo de asistencia al estadio, porcentaje de lleno y taquilla
-│   │   ├── training.js         # Planes de entrenamiento semanal y su impacto en físico/progreso
-│   │   ├── career-hooks.js     # Progresión del mánager (XP, niveles, perks) y objetivos de directiva
-│   │   ├── multiplayer-local.js# Gestión de turnos e intercambio de estado entre mánagers locales
-│   │   ├── multiplayer-online.js# Sincronización en la nube con Supabase (crear, buscar y unir sala)
-│   │   └── audio.js            # Sintetizador de efectos de sonido del partido mediante Web Audio
-│   └── ui/
-│       ├── dom-manager.js      # Controlador principal de navegación, ciclo de render y eventos globales
-│       ├── views/
-│       │   ├── lobby-view.js       # Pantalla inicial de selección de club y salas multijugador
-│       │   ├── manager-tabs.js     # Vistas operativas: Centro, Plantilla, Táctica, Staff, Mercado y Prensa
-│       │   ├── match-view.js       # Interfaz de partido en vivo, marcador y controles tácticos
-│       │   └── competitions-view.js# Tablas de clasificación, copas y calendario internacional
-│       ├── components/
-│       │   └── ui-helpers.js   # Badges de OVR, barras de progreso, camisetas SVG y pestañas
-│       ├── pitch-renderer.js   # Renderizado 2D del campo, líneas, jugadores y balón en Canvas
-│       ├── match-cinematics.js # Banners animados de gol en vivo y animación de simulación rápida
-│       ├── player-modal.js     # Ficha detallada del jugador, desglose de precio y sala de negociación
-│       ├── badges.js           # Generador vectorial SVG de escudos personalizados por club
-│       ├── tactics-extras.js   # Controles complementarios de pizarra e instrucciones tácticas
-│       ├── world-expansion-ui.js# Componentes visuales de ligas internacionales y expansión
-│       ├── career-hub.js       # Componentes visuales de trayectoria y vitrina del mánager
-│       └── toast.js            # Sistema de notificaciones flotantes no intrusivas
-├── main.js                     # Punto de entrada que inicializa la interfaz y el ciclo de vida
-├── index.html                  # Documento HTML5 raíz con metadatos PWA y registro del SW
-├── manifest.json               # Manifiesto de aplicación web instalable (WSWM 26)
-├── package.json                # Definición del paquete, dependencias y scripts de Vite/Vitest
-├── sw.js                       # Service Worker con caché offline y limpieza de versiones previas
-└── README.md                   # Documentación técnica y funcional completa del proyecto
+world-soccer-web-manager/
++-- docs/
+|   +-- specs/                  # Especificaciones funcionales y reglas de negocio
++-- tests/
+|   +-- transfers.test.js       # Suite de pruebas unitarias de mercado (Vitest)
++-- src/
+|   +-- ai/
+|   |   +-- director.js         # Motor narrativo: eventos post-partido y prensa
+|   +-- core/
+|   |   +-- state.js            # Store central reactivo y suscripciones
+|   |   +-- storage-idb.js      # Persistencia asíncrona en IndexedDB
+|   +-- data/
+|   |   +-- world-database.js   # Catálogo maestro de ligas, clubes y plantillas
+|   |   +-- database.js         # Estructuras y funciones auxiliares iniciales
+|   |   +-- custom-legends.js   # Base de datos de futbolistas históricos y leyendas
+|   +-- engine/
+|   |   +-- match-live.js       # Simulación tick a tick en vivo, IA y sustituciones
+|   |   +-- quick-sim.js        # Resolución rápida ponderada por los 11 titulares
+|   |   +-- competitions.js     # Calendarios, tablas de posiciones, copas y cruces
+|   |   +-- transfers.js        # Valoración dinámica exponencial, compras y ventas
+|   |   +-- market-advanced.js  # Negociación interactiva, cesiones y mercado IA
+|   |   +-- economy-market.js   # Salarios, ventanas de fichajes y Deadline Day
+|   |   +-- progression.js      # Avance de jornada, balance financiero y renovaciones
+|   |   +-- season-transition.js# Cierre de campaña, premios y nueva temporada
+|   |   +-- world-longevity.js  # Envejecimiento, retiros y creación de regens
+|   |   +-- youth-scouting.js   # Ojeo juvenil por regiones y Academia Sub-18
+|   |   +-- player-development.js# Agentes libres, cambio de posición y enfoque
+|   |   +-- medical.js          # Lesiones, recuperación física y tarjetas
+|   |   +-- squad-manager.js    # Selección automática del mejor XI disponible
+|   |   +-- tactics-roles.js    # Formaciones, coordenadas y penalización de rol
+|   |   +-- staff.js            # Mejoras de cuerpo técnico, ojeadores y estadio
+|   |   +-- stadium.js          # Asistencia al estadio, porcentaje de lleno y taquilla
+|   |   +-- training.js         # Planes de entrenamiento semanal
+|   |   +-- career-hooks.js     # Progresión del mánager (XP, niveles, perks)
+|   |   +-- multiplayer-local.js# Turnos e intercambio entre mánagers locales
+|   |   +-- multiplayer-online.js# Sincronización en la nube con Supabase
+|   |   +-- audio.js            # Sintetizador de sonido con Web Audio API
+|   +-- ui/
+|       +-- dom-manager.js      # Controlador principal de navegación y eventos
+|       +-- views/
+|       |   +-- lobby-view.js       # Pantalla inicial de clubes y salas
+|       |   +-- manager-tabs.js     # Centro, Plantilla, Táctica, Staff, Mercado, Prensa
+|       |   +-- match-view.js       # Interfaz de partido en vivo y marcador
+|       |   +-- competitions-view.js# Tablas de clasificación, copas y calendario
+|       +-- components/
+|       |   +-- ui-helpers.js   # Badges de OVR, barras, camisetas SVG y pestañas
+|       +-- pitch-renderer.js   # Renderizado 2D del campo y jugadores en Canvas
+|       +-- match-cinematics.js # Banners animados de gol y simulación rápida
+|       +-- player-modal.js     # Ficha de jugador, desglose y sala de negociación
+|       +-- badges.js           # Generador SVG de escudos personalizados
+|       +-- tactics-extras.js   # Controles complementarios de pizarra táctica
+|       +-- world-expansion-ui.js# Componentes visuales de ligas internacionales
+|       +-- career-hub.js       # Trayectoria y vitrina de trofeos del mánager
+|       +-- toast.js            # Sistema de notificaciones flotantes
++-- main.js                     # Punto de entrada de la aplicación
++-- index.html                  # Documento HTML5 raíz y registro PWA
++-- manifest.json               # Manifiesto instalable (WSWM 26)
++-- package.json                # Dependencias y scripts de Vite / Vitest
++-- sw.js                       # Service Worker offline
++-- README.md                   # Documentación técnica del proyecto
+
+
 8. Historial de Correcciones Técnicas (Fase 0)Durante la auditoría técnica inicial (Fase 0)
 
 Se resolvieron los siguientes problemas estructurales antes de iniciar la expansión funcional:Bug en Ofertas Entrantes (src/engine/transfers.js): Corregido el acceso a draft.inbox dentro de store.update(["inbox"], ...) e inicialización segura del arreglo (if (!Array.isArray(draft.inbox)) draft.inbox = [];), cubierto con pruebas automatizadas en tests/transfers.test.js.Persistencia Asíncrona sin Bloqueos (src/core/storage-idb.js y src/core/state.js): Migrado el guardado principal a IndexedDB asíncrono y mantenido el estado liveMatch en memoria RAM transitoria para eliminar caídas de fotogramas (stuttering) durante los partidos en vivo.
@@ -233,26 +236,40 @@ Para mantener la estabilidad del despliegue continuo en Vercel, todo colaborador
 1. Estructura de Ramasmain (Producción): Contiene exclusivamente código estable, probado y libre de errores bloqueantes. Esta rama está conectada directamente al dominio público en Vercel. Están prohibidos los commits directos sobre main.developer (Integración y Pruebas): Rama principal de desarrollo donde se integran y prueban todas las nuevas características antes de promoverlas a main.
 
 2. Proceso para DesarrolladoresCrea una rama nueva partiendo siempre desde developer actualizada, utilizando una convención de nombres clara:
+   
 feat/nombre-de-la-funcion → Para nuevas características (ej. feat/dynamic-market).
+
 fix/descripcion-del-bug → Para corrección de errores (ej. fix/transfers-inbox-crash).
+
 refactor/nombre-del-modulo → Para limpieza o modularización interna (ej. refactor/split-dom-manager).
+
 docs/tema → Para actualizaciones de documentación o especificaciones.
 
 Verificación Previa: Antes de abrir un Pull Request hacia developer, verifica localmente que: Las pruebas unitarias (npm test) pasen al 100%.La compilación de producción (npm run build) finalice limpiamente sin errores de sintaxis ni importaciones rotas.
 
-9.
 
-Preguntas Frecuentes (FAQ)
+9.Preguntas Frecuentes (FAQ)
+
 ¿El juego utiliza Inteligencia Artificial generativa (ChatGPT, Gemini, Claude, etc.) durante las partidas?
+
 No. Toda la simulación de partidos, decisiones de fichajes de los clubes rivales y eventos de prensa de ai/director.js funcionan mediante algoritmos deterministas, probabilidades ponderadas por atributos y tablas de eventos locales en el navegador. Esto garantiza que WSWM 26 sea 100% gratuito, tenga latencia cero y nunca dependa de cuotas o claves de APIs externas.
+
 ¿Necesito descargar o instalar algún programa para jugar?
+
 No. Al estar hospedado en Vercel, el juego funciona directamente desde cualquier navegador web moderno. Si lo deseas, puedes instalarlo como Progressive Web App (PWA) para tener un icono en tu escritorio o pantalla de inicio y jugar sin conexión a internet.
+
 ¿Por qué los nombres de algunos clubes o competiciones son adaptados?
+
 Para respetar los derechos de propiedad intelectual y marcas registradas de ligas, federaciones y clubes profesionales reales, World Soccer Web Manager utiliza nombres inspirados en ciudades reales, colores históricos y tradiciones futbolísticas sin plagiar marcas comerciales.
+
 ¿Dónde se guardan mis partidas y cómo evito perder mi progreso?
+
 En IndexedDB dentro del almacenamiento local de tu navegador web. Si borras los datos del sitio o utilizas el botón "Nueva Partida" dentro del menú lateral, la partida local se reiniciará. En las partidas Multijugador Online, el estado del mundo se respalda en la nube asociado al código de tu sala.
+
 ¿Puedo jugar con amigos desde distintos celulares o computadoras?
+
 Sí. Crea una partida en el modo "Crear Sala Amigos (2-6)", asigna los clubes de cada participante y, dentro del juego, pulsa "Publicar Sala Online". Comparte el código de 6 caracteres con tus amigos para que ingresen desde la opción "Unirse a Sala Online" en sus propios dispositivos.
+
 
 10. Derechos de Autor y Licencia
     
