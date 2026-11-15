@@ -34,6 +34,7 @@ export function buyPlayer(playerId, forceOverpay = false) {
     draft.players[playerId].clubId = draft.userClubId;
     draft.players[playerId].starter = false;
     draft.players[playerId].contractYears = 4;
+    if (!Array.isArray(draft.inbox)) draft.inbox = [];
     draft.inbox.unshift({
       id: `tr_${Date.now()}`,
       title: `Fichaje Confirmado: ${player.name}`,
@@ -44,7 +45,7 @@ export function buyPlayer(playerId, forceOverpay = false) {
     });
   });
 
-  return { ok: true };
+  return { ok: true, msg: `¡${player.name} fichado por ${(finalPrice / 1e6).toFixed(2)} M€!` };
 }
 
 export function sellPlayer(playerId) {
@@ -67,6 +68,7 @@ export function sellPlayer(playerId) {
     draft.budget += sellPrice;
     draft.players[playerId].clubId = buyerClubId;
     draft.players[playerId].starter = false;
+    if (!Array.isArray(draft.inbox)) draft.inbox = [];
     draft.inbox.unshift({
       id: `sell_${Date.now()}`,
       title: `Venta Cerrada: ${player.name}`,
@@ -77,7 +79,7 @@ export function sellPlayer(playerId) {
     });
   });
 
-  return { ok: true };
+  return { ok: true, msg: `${player.name} vendido por ${(sellPrice / 1e6).toFixed(2)} M€.` };
 }
 
 export function maybeGenerateIncomingOffer() {
@@ -96,7 +98,8 @@ export function maybeGenerateIncomingOffer() {
   const offerAmount = Math.round(calculateMarketValue(target, 1) * 1.12);
 
   store.update(["inbox"], draft => {
-    draft.unshift({
+    if (!Array.isArray(draft.inbox)) draft.inbox = [];
+    draft.inbox.unshift({
       id: `offer_${target.id}_${Date.now()}`,
       type: "transfer_offer",
       playerId: target.id,
@@ -117,13 +120,15 @@ export function maybeGenerateIncomingOffer() {
 export function respondToTransferOffer(eventId, choiceIdx) {
   const state = store.get();
   const ev = (state.inbox || []).find(m => m.id === eventId);
-  if (!ev || ev.resolved) return;
+  if (!ev || ev.resolved) return { ok: false };
 
   if (choiceIdx === 0) {
     const mySquad = Object.values(state.players || {}).filter(p => p.clubId === state.userClubId);
     if (mySquad.length <= 13) {
-      alert("No puedes aceptar: necesitas al menos 13 jugadores en plantilla.");
-      return;
+      if (typeof alert === "function") {
+        alert("No puedes aceptar: necesitas al menos 13 jugadores en plantilla.");
+      }
+      return { ok: false, msg: "Necesitas al menos 13 jugadores en plantilla." };
     }
     store.update(["players", "budget", "inbox"], draft => {
       if (draft.players[ev.playerId]) {
@@ -131,19 +136,23 @@ export function respondToTransferOffer(eventId, choiceIdx) {
         draft.players[ev.playerId].starter = false;
         draft.budget += ev.offerAmount;
       }
+      if (!Array.isArray(draft.inbox)) draft.inbox = [];
       const item = draft.inbox.find(m => m.id === eventId);
       if (item) {
         item.resolved = true;
         item.chosenLabel = `Vendido por ${(ev.offerAmount / 1e6).toFixed(2)} M€`;
       }
     });
+    return { ok: true };
   } else {
     store.update(["inbox"], draft => {
+      if (!Array.isArray(draft.inbox)) draft.inbox = [];
       const item = draft.inbox.find(m => m.id === eventId);
       if (item) {
         item.resolved = true;
         item.chosenLabel = "Oferta rechazada";
       }
     });
+    return { ok: true };
   }
 }
