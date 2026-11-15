@@ -1,10 +1,19 @@
 import { store } from "../core/state.js";
 
 export function calculateMarketValue(player, scoutLevel = 1) {
-  const base = Math.pow(Math.max(1, player.ovr - 62), 2.15) * 42000;
-  const ageFactor = player.age <= 22 ? 1.25 : player.age >= 31 ? 0.65 : 1.0;
+  const ovr = player.ovr || 75;
+  const expBase = Math.pow(Math.max(1, ovr - 60), 2.55) * 20500;
+  const eliteMult = ovr >= 88 ? 1 + (ovr - 87) * 0.08 : 1.0;
+  const ageFactor =
+    player.age <= 21 ? 1.24 :
+    player.age === 22 ? 1.15 :
+    player.age >= 32 ? 0.58 :
+    player.age >= 30 ? 0.75 : 1.0;
   const discount = 1 - ((scoutLevel - 1) * 0.06);
-  return Math.max(500000, Math.round((base * ageFactor * discount) / 100000) * 100000);
+
+  const raw = expBase * eliteMult * ageFactor * discount;
+  const capped = Math.min(200000000, raw);
+  return Math.max(500000, Math.round(capped / 100000) * 100000);
 }
 
 export function buyPlayer(playerId, forceOverpay = false) {
@@ -12,6 +21,9 @@ export function buyPlayer(playerId, forceOverpay = false) {
   const player = state.players[playerId];
   const scoutLevel = state.staff?.scout || 1;
   if (!player) return { ok: false, msg: "Jugador no encontrado." };
+  if (player.clubId === "legend_vault") {
+    return { ok: false, msg: "Las leyendas históricas solo se obtienen mediante títulos, subastas secretas o regens élite." };
+  }
 
   const basePrice = calculateMarketValue(player, scoutLevel);
   const finalPrice = forceOverpay ? Math.round(basePrice * 1.15) : basePrice;

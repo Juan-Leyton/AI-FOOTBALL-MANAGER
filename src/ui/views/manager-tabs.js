@@ -590,7 +590,9 @@ export function renderTransfersTab(state) {
   const searchQuery = (state.marketSearchQuery || "").trim();
   const queryLower = searchQuery.toLowerCase();
 
-  const allExternal = Object.values(state.players || {}).filter(p => p.clubId !== state.userClubId);
+  const allExternal = Object.values(state.players || {}).filter(
+    p => p.clubId !== state.userClubId && p.clubId !== "legend_vault"
+  );
   const filtered = allExternal.filter(p => {
     if (posFilter !== "ALL" && p.pos !== posFilter) return false;
     if (leagueFilter === "FREE") {
@@ -621,7 +623,7 @@ export function renderTransfersTab(state) {
         </div>
         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
           <button class="btn-filter-league fm-btn ${leagueFilter === 'ALL' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="ALL" style="padding: 5px 9px; font-size: 11px;">Todas</button>
-          <button class="btn-filter-league fm-btn ${leagueFilter === 'FREE' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="FREE" style="padding: 5px 9px; font-size: 11px; border-color:rgba(16,185,129,0.5); color:#34d399;">🆓 Libres (0M)</button>
+          <button class="btn-filter-league fm-btn ${leagueFilter === 'FREE' ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="FREE" style="padding: 5px 9px; font-size: 11px; border-color:rgba(16,185,129,0.5); color:#34d399;">🆓 Libres</button>
           ${LEAGUES_CATALOG.map(l => `
             <button class="btn-filter-league fm-btn ${leagueFilter === l.id ? 'fm-btn-primary' : 'fm-btn-ghost'}" data-league="${l.id}" style="padding: 5px 9px; font-size: 11px;">
               ${l.flag} ${l.country}

@@ -1,7 +1,6 @@
 import { store } from "../core/state.js";
 import { initCompetitions } from "./competitions.js";
-import { processSeasonRetirementsAndRegens } from "./world-longevity.js";
-import { grantManagerXp, ensureCareerHooksState } from "./career-hooks.js";
+import { grantTitleLegendReward, spawnEliteLegendRegen } from "./legends-pool.js";
 
 function getTopLeagueClubs(leagueObj, count = 2) {
   if (!leagueObj?.standings) return [];
@@ -19,8 +18,8 @@ export function runEndOfSeasonTransition() {
   const uid = state.userClubId;
   const comps = state.competitions || {};
 
-  // 1. Calcular Bota de Oro y Balón de Oro entre los 864 jugadores
-  const allPlayers = Object.values(state.players || {});
+  // 1. Calcular Bota de Oro y Balón de Oro
+  const allPlayers = Object.values(state.players || {}).filter(p => p.clubId !== "legend_vault");
   const goldenBootWinner = [...allPlayers].sort((a, b) => (b.goals || 0) - (a.goals || 0) || b.ovr - a.ovr)[0];
   const ballonDorWinner = [...allPlayers].sort((a, b) => (b.ovr + (b.goals || 0) * 0.45) - (a.ovr + (a.goals || 0) * 0.45))[0];
 
@@ -35,25 +34,29 @@ export function runEndOfSeasonTransition() {
     confBonus += 8;
   }
 
-  // 2. Obtener los 8 clasificados reales por méritos (Top 2 de cada una de las 4 ligas)
+  // 2. Obtener los 8 clasificados reales por méritos (Top 2 de cada liga)
   const qualifiedEurope = [
     ...getTopLeagueClubs(comps.league_1, 2),
     ...Object.values(comps.otherLeagues || {}).flatMap(ol => getTopLeagueClubs(ol, 2))
   ].slice(0, 8);
 
-  // 3. Comprobar si el usuario ganó Liga o Copa para Supercopa de Apertura
+  // 3. Comprobar si el usuario ganó Liga o Copa para Supercopa y Recompensa de Leyenda
   const l1Sorted = getTopLeagueClubs(comps.league_1, 1);
   const wonLeague = l1Sorted[0] === uid;
   const wonCup = comps.cup_1?.championId === uid;
   const supercupWon = wonLeague || wonCup;
   const supercupPrize = supercupWon ? 4000000 : 0;
 
+  // 4. Generar Regen Élite heredero de un Ícono Mundial
+  const regenInfo = spawnEliteLegendRegen(supercupWon);
+
   store.update(["season", "players", "clubs", "competitions", "budget", "boardConfidence", "trophies", "inbox", "lastYouthSeason"], draft => {
     draft.season = nextSeason;
     draft.lastYouthSeason = 0;
 
-    // Devolver cedidos, envejecer 1 año, evolucionar OVR y reiniciar goles/tarjetas
     Object.values(draft.players || {}).forEach(p => {
+      if (p.clubId === "legend_vault") return;
+
       if (p.isLoaned && p.loanFromClubId && draft.clubs[p.loanFromClubId]) {
         p.clubId = p.loanFromClubId;
         p.isLoaned = false;
@@ -72,7 +75,6 @@ export function runEndOfSeasonTransition() {
         p.contractYears -= 1;
       }
 
-      // Evolución de OVR según edad
       if (p.age <= 23) {
         p.ovr = Math.min(94, p.ovr + (Math.random() < 0.7 ? 2 : 1));
       } else if (p.age <= 28) {
@@ -81,7 +83,6 @@ export function runEndOfSeasonTransition() {
         p.ovr = Math.max(65, p.ovr - 1);
       }
 
-      // Si un veterano llega a 37, se regenera como promesa joven de 18 años en el mismo club
       if (p.age >= 37) {
         p.age = 18;
         p.ovr = Math.max(68, (draft.clubs[p.clubId]?.ovr || 75) - 6);
@@ -90,10 +91,8 @@ export function runEndOfSeasonTransition() {
       }
     });
 
-    // Reiniciar competiciones para la nueva temporada
     const newComps = initCompetitions(draft.clubs, uid);
 
-    // Inyectar los 8 clasificados reales por mérito deportivo en la Copa Continental Élite
     if (qualifiedEurope.length === 8 && newComps.cont_1) {
       const shuffled = [...qualifiedEurope].sort(() => Math.random() - 0.5);
       const qf = [];
@@ -107,7 +106,6 @@ export function runEndOfSeasonTransition() {
 
     draft.competitions = newComps;
 
-    // Presupuesto base de nueva temporada + premios + Supercopa
     const tvRights = 22000000;
     draft.budget = (draft.budget || 0) + tvRights + awardBonus + supercupPrize;
     draft.boardConfidence = Math.min(100, (draft.boardConfidence || 80) + confBonus);
@@ -119,6 +117,9 @@ export function runEndOfSeasonTransition() {
     const gbClub = draft.clubs[goldenBootWinner?.clubId]?.name || "-";
     const bdClub = draft.clubs[ballonDorWinner?.clubId]?.name || "-";
     const userInEurope = qualifiedEurope.includes(uid);
+    const regenLine = regenInfo
+      ? `<br>👑 <b>Regen Élite Nacido:</b> ${regenInfo.flag || ""} ${regenInfo.regenName} (17a, OVR ${regenInfo.ovr}, heredero de ${regenInfo.mentorName}) en <i>${regenInfo.clubName}</i>`
+      : "";
 
     draft.inbox = [
       {
@@ -129,7 +130,7 @@ export function runEndOfSeasonTransition() {
           🌟 <b>Balón de Oro:</b> ${ballonDorWinner?.name || "-"} (${bdClub}, OVR ${ballonDorWinner?.ovr || "-"})<br>
           👟 <b>Bota de Oro:</b> ${goldenBootWinner?.name || "-"} (${gbClub}, ${goldenBootWinner?.goals || 0} goles)<br>
           🌍 <b>Europa T${nextSeason}:</b> ${userInEurope ? "¡Clasificado por méritos deportivos a la Copa Continental Élite!" : "No entraste en el Top 2 de liga para Europa esta campaña."}<br>
-          💰 <b>Ingresos Derechos TV:</b> +22.00 M€ ${supercupWon ? `| 🏆 Supercopa ganada (+4.00 M€)` : ""} ${awardBonus > 0 ? `| 🏅 Bono Premios (+${(awardBonus / 1e6).toFixed(1)} M€)` : ""}
+          💰 <b>Ingresos Derechos TV:</b> +22.00 M€ ${supercupWon ? `| 🏆 Supercopa ganada (+4.00 M€)` : ""} ${awardBonus > 0 ? `| 🏅 Bono Premios (+${(awardBonus / 1e6).toFixed(1)} M€)` : ""}${regenLine}
         `,
         choices: [],
         resolved: true
@@ -137,4 +138,11 @@ export function runEndOfSeasonTransition() {
       ...(draft.inbox || [])
     ];
   });
+
+  // 5. Desbloquear Recompensa de Leyenda en Bandeja IA si ganó título oficial
+  if (wonLeague) {
+    grantTitleLegendReward(comps.league_1?.name || "Liga Nacional");
+  } else if (wonCup) {
+    grantTitleLegendReward(comps.cup_1?.name || "Copa Nacional");
+  }
 }

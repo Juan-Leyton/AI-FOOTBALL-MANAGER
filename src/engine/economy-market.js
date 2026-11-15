@@ -8,14 +8,15 @@ export const SPONSORS_CATALOG = [
   { id: "sp_titan", name: "Apex Sovereign Energy", weekly: 1550000, winBonus: 650000, minOvr: 85, desc: "Megacontrato exclusivo para potencias mundiales." }
 ];
 
-// Salario semanal realista según OVR y edad
+// Salario semanal realista según OVR y edad (acorde a escala exponencial de mercado)
 export function getRealisticWeeklyWage(player) {
   if (!player) return 25000;
   if (player.wage && player.wage > 0) return player.wage;
   const ovr = player.ovr || 75;
-  const base = Math.pow(Math.max(1, ovr - 62), 2.35) * 420;
-  const ageFactor = player.age >= 32 ? 0.85 : player.age <= 20 ? 0.65 : 1.0;
-  return Math.round((base * ageFactor) / 1000) * 1000;
+  const expBase = Math.pow(Math.max(1, ovr - 60), 2.55) * 280;
+  const eliteMult = ovr >= 88 ? 1 + (ovr - 87) * 0.16 : 1.0;
+  const ageFactor = player.age >= 32 ? 0.85 : player.age <= 20 ? 0.62 : 1.0;
+  return Math.max(8000, Math.round((expBase * eliteMult * ageFactor) / 1000) * 1000);
 }
 
 // Cláusula de rescisión realista (1.45x a 2.1x valor de mercado según edad y contrato)
@@ -100,7 +101,7 @@ export function payReleaseClause(targetPlayerId) {
   const state = store.get();
   const target = state.players?.[targetPlayerId];
   const userClub = state.clubs?.[state.userClubId];
-  if (!target || !userClub || target.clubId === userClub.id || target.clubId === "free_agent") {
+  if (!target || !userClub || target.clubId === userClub.id || target.clubId === "free_agent" || target.clubId === "legend_vault") {
     return { ok: false, msg: "Este jugador no tiene cláusula activa." };
   }
 
@@ -146,7 +147,9 @@ export function proposePlayerSwap(targetPlayerId, offeredPlayerId, cashOffered) 
   const userClub = state.clubs?.[state.userClubId];
 
   if (!target || !offered || !userClub) return { ok: false, msg: "Selecciona ambos jugadores para el intercambio." };
-  if (target.clubId === userClub.id || target.clubId === "free_agent") return { ok: false, msg: "El jugador objetivo no pertenece a un club negociable." };
+  if (target.clubId === userClub.id || target.clubId === "free_agent" || target.clubId === "legend_vault") {
+    return { ok: false, msg: "El jugador objetivo no pertenece a un club negociable." };
+  }
   if (offered.clubId !== userClub.id) return { ok: false, msg: "El jugador ofrecido debe pertenecer a tu plantilla." };
   if (offered.isLoaned) return { ok: false, msg: "No puedes incluir un jugador cedido en un trueque." };
 
@@ -158,7 +161,6 @@ export function proposePlayerSwap(targetPlayerId, offeredPlayerId, cashOffered) 
   const targetVal = Math.round(calculateMarketValue(target, scoutLvl) * winStatus.priceMult);
   const offeredVal = Math.round(calculateMarketValue(offered, 1) * 0.92);
 
-  // El club rival valora si necesita esa posición
   const sellerClub = state.clubs[target.clubId];
   const sellerSquad = Object.values(state.players || {}).filter(p => p.clubId === target.clubId);
   const samePosCount = sellerSquad.filter(p => p.pos === offered.pos).length;
@@ -181,13 +183,11 @@ export function proposePlayerSwap(targetPlayerId, offeredPlayerId, cashOffered) 
       draft.clubs[sellerClub.id].budget = (draft.clubs[sellerClub.id].budget || 0) + cash;
     }
 
-    // Jugador objetivo llega al club del usuario
     draft.players[target.id].clubId = userClub.id;
     draft.players[target.id].starter = false;
     draft.players[target.id].contractYears = 4;
     draft.players[target.id].morale = 90;
 
-    // Jugador ofrecido va al club rival
     draft.players[offered.id].clubId = target.clubId;
     draft.players[offered.id].starter = false;
     draft.players[offered.id].morale = 80;
