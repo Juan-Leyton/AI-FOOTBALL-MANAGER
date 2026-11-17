@@ -1,10 +1,10 @@
 import { store } from "../core/state.js";
 
-const SOUTH_AMERICAN_LEAGUES = new Set(["bra_1", "arg_1", "col_1"]);
+const SOUTH_AMERICAN_LEAGUES = new Set(["bra_1", "bra_2", "arg_1", "arg_2", "col_1", "col_2"]);
 
 export function isSouthAmericanClub(club) {
   if (!club) return false;
-  return SOUTH_AMERICAN_LEAGUES.has(club.leagueId);
+  return SOUTH_AMERICAN_LEAGUES.has(club.leagueId) || club.continent === "Sudamérica";
 }
 
 export function getClubLeagueObj(competitions, clubId) {
@@ -43,14 +43,19 @@ export function generateRoundRobinSchedule(clubIds) {
   return [...firstLeg, ...secondLeg];
 }
 
-function buildLeagueObject(id, name, clubIds) {
+function buildLeagueObject(id, realId, name, country, tier, parentLeagueId, childLeagueId, clubIds) {
   const standings = {};
   clubIds.forEach(cid => {
     standings[cid] = { pj: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 };
   });
   return {
     id,
+    realId,
     name,
+    country,
+    tier: tier ?? 1,
+    parentLeagueId: parentLeagueId || null,
+    childLeagueId: childLeagueId || null,
     type: "league",
     schedule: generateRoundRobinSchedule(clubIds),
     currentRound: 0,
@@ -60,62 +65,133 @@ function buildLeagueObject(id, name, clubIds) {
 }
 
 function buildKnockoutBracket(id, name, participantIds) {
+  const targetSize = participantIds.length > 16 ? 32 : 16;
   const shuffled = [...participantIds].sort(() => Math.random() - 0.5);
-  while (shuffled.length < 16) {
+  while (shuffled.length < targetSize) {
     shuffled.push(shuffled[shuffled.length % Math.max(1, participantIds.length)]);
   }
-  const round16 = [];
-  for (let i = 0; i < 16; i += 2) {
-    round16.push([shuffled[i], shuffled[i + 1]]);
+  const firstRound = [];
+  for (let i = 0; i < targetSize; i += 2) {
+    firstRound.push([shuffled[i], shuffled[i + 1]]);
   }
+  const stageNames =
+    targetSize === 32
+      ? ["Dieciseisavos de Final", "Octavos de Final", "Cuartos de Final", "Semifinales", "Gran Final"]
+      : ["Octavos de Final", "Cuartos de Final", "Semifinales", "Gran Final"];
+
   return {
     id,
     name,
     type: "knockout",
-    stageNames: ["Octavos de Final", "Cuartos de Final", "Semifinales", "Gran Final"],
-    rounds: [round16],
+    stageNames,
+    rounds: [firstRound],
     currentStage: 0,
     championId: null
   };
 }
 
-function selectContinentalTeams(clubsMap, isConmebol, preferredClubId = null) {
+function buildGroupAndKnockoutTournament(id, name, participantIds) {
+  const teams = [...participantIds].slice(0, 16);
+  while (teams.length < 16) {
+    teams.push(participantIds[teams.length % Math.max(1, participantIds.length)]);
+  }
+
+  const groupNames = ["Grupo A", "Grupo B", "Grupo C", "Grupo D"];
+  const groups = [];
+
+  for (let g = 0; g < 4; g++) {
+    const gTeams = teams.slice(g * 4, g * 4 + 4);
+    const standings = {};
+    gTeams.forEach(cid => {
+      standings[cid] = { pj: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 };
+    });
+    groups.push({
+      name: groupNames[g],
+      teams: gTeams,
+      schedule: generateRoundRobinSchedule(gTeams),
+      standings
+    });
+  }
+
+  return {
+    id,
+    name,
+    type: "group_knockout",
+    phase: "groups", // "groups" (6 jornadas) -> "knockout" (Cuartos, Semis, Final)
+    groupRound: 0,
+    groups,
+    stageNames: ["Cuartos de Final", "Semifinales", "Gran Final"],
+    rounds: [],
+    currentStage: 0,
+    championId: null
+  };
+}
+
+function selectContinentalTiers(clubsMap, isConmebol, preferredClubId = null) {
   const allClubs = Object.values(clubsMap || {});
   const regionClubs = allClubs
-    .filter(c => (isConmebol ? isSouthAmericanClub(c) : !isSouthAmericanClub(c)))
+    .filter(c => {
+      if (c.tier === 2) return false;
+      if (isConmebol) {
+        return isSouthAmericanClub(c) || ["penarol_mvd", "nacional_mvd", "colo_colo", "ldu_quito"].includes(c.id);
+      }
+      return !isSouthAmericanClub(c) && !["penarol_mvd", "nacional_mvd", "colo_colo", "ldu_quito", "inter_miami", "la_galaxy", "club_america", "monterrey_cf", "tigres_uanl", "al_hilal_riy", "al_nassr_riy", "al_ahly_cai"].includes(c.id);
+    })
     .sort((a, b) => b.ovr - a.ovr);
 
-  const selected = new Set();
+  const eliteSet = new Set();
+  const challengeSet = new Set();
+
   if (preferredClubId && clubsMap[preferredClubId]) {
-    const prefIsSA = isSouthAmericanClub(clubsMap[preferredClubId]);
-    if (prefIsSA === isConmebol) {
-      selected.add(preferredClubId);
+    const prefClub = clubsMap[preferredClubId];
+    if (isSouthAmericanClub(prefClub) === isConmebol && prefClub.tier !== 2) {
+      if (prefClub.ovr >= 78) eliteSet.add(preferredClubId);
+      else challengeSet.add(preferredClubId);
     }
   }
 
-  // Asegurar representación equilibrada por liga
   const byLeague = {};
   regionClubs.forEach(c => {
     if (!byLeague[c.leagueId]) byLeague[c.leagueId] = [];
     byLeague[c.leagueId].push(c);
   });
 
-  const quotaPerLeague = isConmebol ? 4 : 2;
   Object.values(byLeague).forEach(list => {
-    list.slice(0, quotaPerLeague).forEach(c => {
-      if (selected.size < 16) selected.add(c.id);
+    list.slice(0, 2).forEach(c => {
+      if (eliteSet.size < 16) eliteSet.add(c.id);
+    });
+    list.slice(2, 4).forEach(c => {
+      if (!eliteSet.has(c.id) && challengeSet.size < 16) challengeSet.add(c.id);
     });
   });
 
   for (const c of regionClubs) {
-    if (selected.size >= 16) break;
-    selected.add(c.id);
+    if (eliteSet.size < 16) eliteSet.add(c.id);
+    else if (!eliteSet.has(c.id) && challengeSet.size < 16) challengeSet.add(c.id);
   }
 
-  return Array.from(selected).slice(0, 16);
+  return {
+    eliteIds: Array.from(eliteSet).slice(0, 16),
+    challengeIds: Array.from(challengeSet).slice(0, 16)
+  };
 }
 
-export function initCompetitions(clubsMap, userClubId = null) {
+export function initLeagueCoefficients() {
+  return {
+    eng_1: { name: "Premier Británica", country: "Inglaterra", pts: 92.5 },
+    esp_1: { name: "Liga Ibérica", country: "España", pts: 89.0 },
+    ita_1: { name: "Serie A Italiana", country: "Italia", pts: 84.5 },
+    ger_1: { name: "Bundesliga Germana", country: "Alemania", pts: 83.0 },
+    fra_1: { name: "Ligue Hexagone", country: "Francia", pts: 74.0 },
+    por_1: { name: "Liga Lusitana", country: "Portugal", pts: 64.5 },
+    ned_1: { name: "Eredivisie Oranje", country: "Países Bajos", pts: 62.0 },
+    bra_1: { name: "Brasileirão Série A", country: "Brasil", pts: 82.0 },
+    arg_1: { name: "Liga Profesional Argentina", country: "Argentina", pts: 78.5 },
+    col_1: { name: "Liga BetPlay Colombia", country: "Colombia", pts: 66.0 }
+  };
+}
+
+export function initCompetitions(clubsMap, userClubId = null, existingCoefficients = null) {
   const allClubs = Object.values(clubsMap || {});
   const leaguesMap = {};
 
@@ -125,6 +201,10 @@ export function initCompetitions(clubsMap, userClubId = null) {
       leaguesMap[lid] = {
         id: lid,
         name: c.leagueName || "Primera División",
+        country: c.country || "España",
+        tier: c.tier ?? 1,
+        parentLeagueId: c.parentLeagueId || null,
+        childLeagueId: c.childLeagueId || null,
         clubs: []
       };
     }
@@ -137,45 +217,100 @@ export function initCompetitions(clubsMap, userClubId = null) {
 
   const league_1 = buildLeagueObject(
     "league_1",
+    primaryGroup.id,
     primaryGroup.name,
+    primaryGroup.country,
+    primaryGroup.tier,
+    primaryGroup.parentLeagueId,
+    primaryGroup.childLeagueId,
     primaryGroup.clubs.map(c => c.id)
   );
 
   const otherLeagues = {};
   Object.values(leaguesMap).forEach(lg => {
     if (lg.id === primaryGroup.id) return;
-    otherLeagues[lg.id] = buildLeagueObject(lg.id, lg.name, lg.clubs.map(c => c.id));
+    otherLeagues[lg.id] = buildLeagueObject(
+      lg.id,
+      lg.id,
+      lg.name,
+      lg.country,
+      lg.tier,
+      lg.parentLeagueId,
+      lg.childLeagueId,
+      lg.clubs.map(c => c.id)
+    );
   });
 
-  // Copa Nacional del país del usuario
-  const cupTeams = [...primaryGroup.clubs].sort((a, b) => b.ovr - a.ovr).map(c => c.id);
-  while (cupTeams.length < 16) {
-    const extra = allClubs.find(c => !cupTeams.includes(c.id));
+  // Copa Nacional mezclando 1ª y 2ª División del país del usuario (hasta 32 clubes)
+  const countryClubs = allClubs
+    .filter(c => c.country === primaryGroup.country)
+    .sort((a, b) => b.ovr - a.ovr)
+    .map(c => c.id);
+
+  while (countryClubs.length < 16) {
+    const extra = allClubs.find(c => !countryClubs.includes(c.id));
     if (!extra) break;
-    cupTeams.push(extra.id);
+    countryClubs.push(extra.id);
   }
-  const cup_1 = buildKnockoutBracket("cup_1", `Copa Nacional (${primaryGroup.name})`, cupTeams.slice(0, 16));
+  const cupSize = countryClubs.length >= 28 ? 32 : 16;
+  const cup_1 = buildKnockoutBracket(
+    "cup_1",
+    `Copa Nacional de ${primaryGroup.country}`,
+    countryClubs.slice(0, cupSize)
+  );
 
-  // Dos Copas Continentales separadas: UEFA Champions League & CONMEBOL Libertadores
+  // Doble escalón continental con Fase de Grupos
   const userIsSA = isSouthAmericanClub(userClub);
-  const uefaIds = selectContinentalTeams(clubsMap, false, userIsSA ? null : userClubId);
-  const conmebolIds = selectContinentalTeams(clubsMap, true, userIsSA ? userClubId : null);
+  const uefaTiers = selectContinentalTiers(clubsMap, false, userIsSA ? null : userClubId);
+  const conmebolTiers = selectContinentalTiers(clubsMap, true, userIsSA ? userClubId : null);
 
-  const uefaCup = buildKnockoutBracket("cont_uefa", "UEFA Champions League", uefaIds);
-  const conmebolCup = buildKnockoutBracket("cont_conmebol", "CONMEBOL Copa Libertadores", conmebolIds);
+  const uefaElite = buildGroupAndKnockoutTournament("uefa_elite", "UEFA Champions Élite", uefaTiers.eliteIds);
+  const uefaChallenge = buildGroupAndKnockoutTournament("uefa_challenge", "UEFA Europa Challenge", uefaTiers.challengeIds);
+  const conmebolElite = buildGroupAndKnockoutTournament("conmebol_elite", "CONMEBOL Copa Libertadores", conmebolTiers.eliteIds);
+  const conmebolChallenge = buildGroupAndKnockoutTournament("conmebol_challenge", "CONMEBOL Copa Sudamericana", conmebolTiers.challengeIds);
 
-  // cont_1 siempre apunta a la continental de la región del mánager activo para compatibilidad
-  const cont_1 = userIsSA ? { ...conmebolCup, id: "cont_1" } : { ...uefaCup, id: "cont_1" };
-  const cont_2 = userIsSA ? { ...uefaCup, id: "cont_2" } : { ...conmebolCup, id: "cont_2" };
+  const cont_1 = userIsSA ? { ...conmebolElite, id: "cont_1" } : { ...uefaElite, id: "cont_1" };
+  const cont_challenge = userIsSA ? { ...conmebolChallenge, id: "cont_challenge" } : { ...uefaChallenge, id: "cont_challenge" };
+  const cont_2 = userIsSA ? { ...uefaElite, id: "cont_2" } : { ...conmebolElite, id: "cont_2" };
+  const cont_2_challenge = userIsSA ? { ...uefaChallenge, id: "cont_2_challenge" } : { ...conmebolChallenge, id: "cont_2_challenge" };
 
   return {
     league_1,
     otherLeagues,
     cup_1,
     cont_1,
+    cont_challenge,
     cont_2,
-    intercontinental: null
+    cont_2_challenge,
+    clubWorldCup: null,
+    leagueCoefficients: existingCoefficients || initLeagueCoefficients()
   };
+}
+
+function getContinentalScheduleRounds(totalLeagueRounds) {
+  // 6 fechas de Fase de Grupos + 3 rondas eliminatorias (Cuartos, Semis, Final)
+  if (totalLeagueRounds >= 28) {
+    return [2, 5, 8, 11, 14, 17, 21, 25, 28];
+  }
+  return [1, 3, 5, 7, 9, 11, 14, 17, 20];
+}
+
+function getNationalCupScheduleRounds(totalLeagueRounds, stageCount) {
+  if (stageCount === 5) {
+    return totalLeagueRounds >= 28 ? [3, 7, 12, 18, 26] : [2, 5, 9, 14, 19];
+  }
+  return totalLeagueRounds >= 28 ? [4, 10, 18, 26] : [3, 7, 13, 19];
+}
+
+function findUserGroupMatch(tourney, userClubId) {
+  if (!tourney || tourney.phase !== "groups") return null;
+  const gIdx = tourney.groupRound || 0;
+  for (const grp of tourney.groups || []) {
+    const roundMatches = grp.schedule?.[gIdx] || [];
+    const match = roundMatches.find(pair => pair.includes(userClubId));
+    if (match) return { match, groupName: grp.name, roundNum: gIdx + 1 };
+  }
+  return null;
 }
 
 export function getNextUserEvent(state) {
@@ -187,9 +322,9 @@ export function getNextUserEvent(state) {
   if (!userLeague) return null;
 
   const rIdx = userLeague.currentRound || 0;
-  if (rIdx >= userLeague.schedule.length) return null;
+  const totalRounds = userLeague.schedule.length;
+  if (rIdx >= totalRounds) return null;
 
-  // En multijugador, comprobar si el usuario actual ya jugó su partido de esta jornada
   if (state.isMultiplayer && state.mpManagers?.length > 1 && userLeague.playedThisRound?.[userClubId]) {
     return {
       compId: userLeague.id,
@@ -198,35 +333,57 @@ export function getNextUserEvent(state) {
     };
   }
 
-  // Verificar si toca Copa Nacional o Continental en jornadas clave (J4, J8, J12, J16)
-  const cupRoundsMap = { 3: 0, 7: 1, 11: 2, 15: 3 };
-  if (rIdx in cupRoundsMap) {
-    const stage = cupRoundsMap[rIdx];
-    const cont1 = comps.cont_1;
-    if (cont1 && !cont1.championId && cont1.currentStage === stage) {
-      const m = cont1.rounds[stage]?.find(pair => pair.includes(userClubId));
-      if (m && !userLeague.playedThisRound?.[`cont_${userClubId}`]) {
-        return {
-          compId: "cont_1",
-          compName: `${cont1.name} (${cont1.stageNames[stage]})`,
-          match: m
-        };
+  // 1. Verificar Copas Continentales (Élite y Challenge)
+  const contRounds = getContinentalScheduleRounds(totalRounds);
+  const contStepIdx = contRounds.indexOf(rIdx);
+  if (contStepIdx !== -1) {
+    for (const cKey of ["cont_1", "cont_challenge"]) {
+      const tourney = comps[cKey];
+      if (!tourney || tourney.championId) continue;
+
+      if (tourney.phase === "groups" && tourney.groupRound === contStepIdx) {
+        const found = findUserGroupMatch(tourney, userClubId);
+        if (found && !userLeague.playedThisRound?.[`${cKey}_${userClubId}`]) {
+          return {
+            compId: cKey,
+            compName: `${tourney.name} (${found.groupName} · J${found.roundNum})`,
+            match: found.match
+          };
+        }
+      } else if (tourney.phase === "knockout") {
+        const koStage = contStepIdx - 6;
+        if (koStage >= 0 && tourney.currentStage === koStage) {
+          const m = tourney.rounds[koStage]?.find(pair => pair.includes(userClubId));
+          if (m && !userLeague.playedThisRound?.[`${cKey}_${userClubId}`]) {
+            return {
+              compId: cKey,
+              compName: `${tourney.name} (${tourney.stageNames[koStage]})`,
+              match: m
+            };
+          }
+        }
       }
     }
+  }
 
-    const cup1 = comps.cup_1;
-    if (cup1 && !cup1.championId && cup1.currentStage === stage) {
-      const m = cup1.rounds[stage]?.find(pair => pair.includes(userClubId));
+  // 2. Verificar Copa Nacional
+  const cup1 = comps.cup_1;
+  if (cup1 && !cup1.championId) {
+    const cupRounds = getNationalCupScheduleRounds(totalRounds, cup1.stageNames.length);
+    const cupStage = cupRounds.indexOf(rIdx);
+    if (cupStage !== -1 && cup1.currentStage === cupStage) {
+      const m = cup1.rounds[cupStage]?.find(pair => pair.includes(userClubId));
       if (m && !userLeague.playedThisRound?.[`cup_${userClubId}`]) {
         return {
           compId: "cup_1",
-          compName: `${cup1.name} (${cup1.stageNames[stage]})`,
+          compName: `${cup1.name} (${cup1.stageNames[cupStage]})`,
           match: m
         };
       }
     }
   }
 
+  // 3. Partido de Liga regular
   const roundMatches = userLeague.schedule[rIdx] || [];
   const userMatch = roundMatches.find(pair => pair.includes(userClubId));
 
@@ -341,6 +498,112 @@ function advanceKnockoutRound(cupObj, clubsMap, userMatchOverride = null) {
   }
 }
 
+function advanceGroupAndKnockoutStep(tourney, clubsMap, userMatchOverride = null) {
+  if (!tourney || tourney.championId) return;
+
+  if (tourney.phase === "groups") {
+    const gIdx = tourney.groupRound || 0;
+    tourney.groups.forEach(grp => {
+      const matches = grp.schedule[gIdx] || [];
+      matches.forEach(([hId, aId]) => {
+        let gh, ga;
+        if (
+          userMatchOverride &&
+          ((userMatchOverride.hId === hId && userMatchOverride.aId === aId) ||
+            (userMatchOverride.hId === aId && userMatchOverride.aId === hId))
+        ) {
+          gh = userMatchOverride.hId === hId ? userMatchOverride.gh : userMatchOverride.ga;
+          ga = userMatchOverride.hId === hId ? userMatchOverride.ga : userMatchOverride.gh;
+        } else {
+          const sim = simulateAiMatchScore(clubsMap[hId], clubsMap[aId]);
+          gh = sim.gh;
+          ga = sim.ga;
+        }
+        applyLeagueResult(grp, hId, aId, gh, ga);
+      });
+    });
+
+    tourney.groupRound = gIdx + 1;
+
+    // Al terminar las 6 jornadas de grupos, clasificar Top 2 de cada grupo a Cuartos de Final
+    if (tourney.groupRound >= 6) {
+      const qualifiers = [];
+      tourney.groups.forEach(grp => {
+        const sorted = Object.entries(grp.standings)
+          .map(([cid, st]) => ({ cid, ...st }))
+          .sort((a, b) => b.pts - a.pts || (b.gf - b.ga) - (a.gf - a.ga));
+        qualifiers.push(sorted[0]?.cid, sorted[1]?.cid);
+      });
+
+      // Cruces cruzados: 1A vs 2B, 1B vs 2A, 1C vs 2D, 1D vs 2C
+      tourney.rounds = [
+        [
+          [qualifiers[0], qualifiers[3]],
+          [qualifiers[2], qualifiers[1]],
+          [qualifiers[4], qualifiers[7]],
+          [qualifiers[6], qualifiers[5]]
+        ]
+      ];
+      tourney.phase = "knockout";
+      tourney.currentStage = 0;
+    }
+    return;
+  }
+
+  advanceKnockoutRound(tourney, clubsMap, userMatchOverride);
+}
+
+function trySimulateClubWorldCupFinalFour(comps, clubsMap, userClubId, draft) {
+  if (comps.clubWorldCup) return;
+  if (!comps.cont_1?.championId || !comps.cont_2?.championId) return;
+
+  const uefaChamp = isSouthAmericanClub(clubsMap[comps.cont_1.championId])
+    ? comps.cont_2.championId
+    : comps.cont_1.championId;
+  const conmebolChamp = isSouthAmericanClub(clubsMap[comps.cont_1.championId])
+    ? comps.cont_1.championId
+    : comps.cont_2.championId;
+
+  const invitedPool = ["al_hilal_riy", "club_america", "inter_miami", "al_ahly_cai"].filter(
+    id => clubsMap[id] && id !== uefaChamp && id !== conmebolChamp
+  );
+  const guest1 = invitedPool[0] || Object.keys(clubsMap)[0];
+  const guest2 = invitedPool[1] || Object.keys(clubsMap)[1];
+
+  const simSemi1 = simulateAiMatchScore(clubsMap[uefaChamp], clubsMap[guest1]);
+  const fin1 = simSemi1.gh >= simSemi1.ga ? uefaChamp : guest1;
+
+  const simSemi2 = simulateAiMatchScore(clubsMap[conmebolChamp], clubsMap[guest2]);
+  const fin2 = simSemi2.gh >= simSemi2.ga ? conmebolChamp : guest2;
+
+  const simFinal = simulateAiMatchScore(clubsMap[fin1], clubsMap[fin2]);
+  const winnerId =
+    simFinal.gh > simFinal.ga
+      ? fin1
+      : simFinal.ga > simFinal.gh
+      ? fin2
+      : Math.random() < 0.5
+      ? fin1
+      : fin2;
+
+  comps.clubWorldCup = {
+    semis: [
+      { homeId: uefaChamp, awayId: guest1, gh: simSemi1.gh, ga: simSemi1.ga, winnerId: fin1 },
+      { homeId: conmebolChamp, awayId: guest2, gh: simSemi2.gh, ga: simSemi2.ga, winnerId: fin2 }
+    ],
+    final: { homeId: fin1, awayId: fin2, gh: simFinal.gh, ga: simFinal.ga, winnerId },
+    winnerId
+  };
+
+  if (winnerId === userClubId) {
+    draft.trophies = draft.trophies || [];
+    draft.trophies.push({
+      title: "Mundial de Clubes FIFA",
+      season: store.get().season || 1
+    });
+  }
+}
+
 export function completeRoundWithUserResult(hId, aId, gh, ga, compId = "league_1") {
   store.update(["competitions", "players", "trophies"], draft => {
     const comps = draft.competitions;
@@ -348,56 +611,36 @@ export function completeRoundWithUserResult(hId, aId, gh, ga, compId = "league_1
     const userClubId = store.get().userClubId;
     const userLeague = getClubLeagueObj(comps, userClubId) || comps.league_1;
     const rIdx = userLeague.currentRound || 0;
+    const totalRounds = userLeague.schedule.length;
 
     if (!userLeague.playedThisRound) userLeague.playedThisRound = {};
 
-    // Si es partido de Copa Nacional o Continental
-    if (compId === "cont_1" || compId === "cup_1") {
-      userLeague.playedThisRound[`${compId === "cont_1" ? "cont" : "cup"}_${userClubId}`] = true;
-      const targetCup = comps[compId];
-      advanceKnockoutRound(targetCup, clubs, { hId, aId, gh, ga });
+    // Partido de Copa Nacional o Continental
+    if (compId === "cont_1" || compId === "cont_challenge" || compId === "cup_1") {
+      userLeague.playedThisRound[`${compId === "cup_1" ? "cup" : compId}_${userClubId}`] = true;
+      const targetTourney = comps[compId];
 
-      // Si es cont_1, avanzar también cont_2 en paralelo
-      if (compId === "cont_1" && comps.cont_2) {
-        advanceKnockoutRound(comps.cont_2, clubs, null);
+      if (compId === "cup_1") {
+        advanceKnockoutRound(targetTourney, clubs, { hId, aId, gh, ga });
+      } else {
+        advanceGroupAndKnockoutStep(targetTourney, clubs, { hId, aId, gh, ga });
+        // Avanzar los demás torneos continentales en paralelo
+        ["cont_1", "cont_challenge", "cont_2", "cont_2_challenge"].forEach(otherKey => {
+          if (otherKey !== compId && comps[otherKey]) {
+            advanceGroupAndKnockoutStep(comps[otherKey], clubs, null);
+          }
+        });
       }
 
-      if (targetCup?.championId === userClubId) {
+      if (targetTourney?.championId === userClubId) {
         draft.trophies = draft.trophies || [];
         draft.trophies.push({
-          title: targetCup.name,
+          title: targetTourney.name,
           season: store.get().season || 1
         });
       }
 
-      // Comprobar si ambos campeones continentales ya existen para disputar la Final Intercontinental
-      if (comps.cont_1?.championId && comps.cont_2?.championId && !comps.intercontinental) {
-        const c1 = clubs[comps.cont_1.championId];
-        const c2 = clubs[comps.cont_2.championId];
-        const simInter = simulateAiMatchScore(c1, c2);
-        const winnerId =
-          simInter.gh > simInter.ga
-            ? c1.id
-            : simInter.ga > simInter.gh
-            ? c2.id
-            : Math.random() < 0.5
-            ? c1.id
-            : c2.id;
-        comps.intercontinental = {
-          homeId: c1.id,
-          awayId: c2.id,
-          gh: simInter.gh,
-          ga: simInter.ga,
-          winnerId
-        };
-        if (winnerId === userClubId) {
-          draft.trophies = draft.trophies || [];
-          draft.trophies.push({
-            title: "Copa Intercontinental FIFA",
-            season: store.get().season || 1
-          });
-        }
-      }
+      trySimulateClubWorldCupFinalFour(comps, clubs, userClubId, draft);
       return;
     }
 
@@ -414,11 +657,9 @@ export function completeRoundWithUserResult(hId, aId, gh, ga, compId = "league_1
       humanClubsInThisLeague.length <= 1 ||
       humanClubsInThisLeague.every(cid => userLeague.playedThisRound[cid]);
 
-    if (!allHumansReady) {
-      return;
-    }
+    if (!allHumansReady) return;
 
-    // Simular el resto de partidos de esta jornada en la liga del usuario
+    // Simular resto de partidos de esta jornada en la liga del usuario
     const roundMatches = userLeague.schedule[rIdx] || [];
     roundMatches.forEach(([mh, ma]) => {
       if ((mh === hId && ma === aId) || (mh === aId && ma === hId)) return;
@@ -432,53 +673,46 @@ export function completeRoundWithUserResult(hId, aId, gh, ga, compId = "league_1
     userLeague.currentRound = rIdx + 1;
     userLeague.playedThisRound = {};
 
-    // Avanzar una jornada en todas las demás ligas del mundo (Europa y Sudamérica)
+    // Avanzar el resto de ligas del mundo sincronizando su ritmo con la temporada del usuario
+    const progressRatio = (rIdx + 1) / totalRounds;
     Object.values(comps.otherLeagues || {}).forEach(ol => {
-      const orIdx = ol.currentRound || 0;
-      if (orIdx >= ol.schedule.length) return;
-      const oMatches = ol.schedule[orIdx] || [];
-      oMatches.forEach(([mh, ma]) => {
-        const sim = simulateAiMatchScore(clubs[mh], clubs[ma]);
-        applyLeagueResult(ol, mh, ma, sim.gh, sim.ga);
-        creditScorersAndAssists(draft.players, mh, sim.gh);
-        creditScorersAndAssists(draft.players, ma, sim.ga);
-      });
-      ol.currentRound = orIdx + 1;
+      const targetRound = Math.min(ol.schedule.length, Math.round(progressRatio * ol.schedule.length));
+      while ((ol.currentRound || 0) < targetRound) {
+        const orIdx = ol.currentRound || 0;
+        const oMatches = ol.schedule[orIdx] || [];
+        oMatches.forEach(([mh, ma]) => {
+          const sim = simulateAiMatchScore(clubs[mh], clubs[ma]);
+          applyLeagueResult(ol, mh, ma, sim.gh, sim.ga);
+          creditScorersAndAssists(draft.players, mh, sim.gh);
+          creditScorersAndAssists(draft.players, ma, sim.ga);
+        });
+        ol.currentRound = orIdx + 1;
+      }
     });
 
-    // En jornadas clave (4, 8, 12, 16), avanzar las copas continentales si el usuario no jugó en ellas
-    const cupRoundsMap = { 3: 0, 7: 1, 11: 2, 15: 3 };
-    if (rIdx in cupRoundsMap) {
-      const stage = cupRoundsMap[rIdx];
-      if (comps.cont_1 && !comps.cont_1.championId && comps.cont_1.currentStage === stage) {
-        advanceKnockoutRound(comps.cont_1, clubs, null);
-      }
-      if (comps.cont_2 && !comps.cont_2.championId && comps.cont_2.currentStage === stage) {
-        advanceKnockoutRound(comps.cont_2, clubs, null);
-      }
-      if (comps.cup_1 && !comps.cup_1.championId && comps.cup_1.currentStage === stage) {
-        advanceKnockoutRound(comps.cup_1, clubs, null);
-      }
+    // Avanzar torneos continentales si tocaba fecha europea/sudamericana y el usuario no la jugó
+    const contRounds = getContinentalScheduleRounds(totalRounds);
+    const contStepIdx = contRounds.indexOf(rIdx);
+    if (contStepIdx !== -1) {
+      ["cont_1", "cont_challenge", "cont_2", "cont_2_challenge"].forEach(cKey => {
+        const t = comps[cKey];
+        if (!t || t.championId) return;
+        const alreadyPlayed = userLeague.playedThisRound?.[`${cKey}_${userClubId}`];
+        if (alreadyPlayed) return;
+        if ((t.phase === "groups" && t.groupRound === contStepIdx) || (t.phase === "knockout" && t.currentStage === contStepIdx - 6)) {
+          advanceGroupAndKnockoutStep(t, clubs, null);
+        }
+      });
+      trySimulateClubWorldCupFinalFour(comps, clubs, userClubId, draft);
+    }
 
-      if (comps.cont_1?.championId && comps.cont_2?.championId && !comps.intercontinental) {
-        const c1 = clubs[comps.cont_1.championId];
-        const c2 = clubs[comps.cont_2.championId];
-        const simInter = simulateAiMatchScore(c1, c2);
-        const winnerId =
-          simInter.gh > simInter.ga
-            ? c1.id
-            : simInter.ga > simInter.gh
-            ? c2.id
-            : Math.random() < 0.5
-            ? c1.id
-            : c2.id;
-        comps.intercontinental = {
-          homeId: c1.id,
-          awayId: c2.id,
-          gh: simInter.gh,
-          ga: simInter.ga,
-          winnerId
-        };
+    // Avanzar Copa Nacional si tocaba fecha copera y el usuario no la jugó
+    const cup1 = comps.cup_1;
+    if (cup1 && !cup1.championId) {
+      const cupRounds = getNationalCupScheduleRounds(totalRounds, cup1.stageNames.length);
+      const cupStage = cupRounds.indexOf(rIdx);
+      if (cupStage !== -1 && cup1.currentStage === cupStage && !userLeague.playedThisRound?.[`cup_${userClubId}`]) {
+        advanceKnockoutRound(cup1, clubs, null);
       }
     }
   });

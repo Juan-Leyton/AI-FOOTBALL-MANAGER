@@ -2,6 +2,8 @@ import { store } from "../core/state.js";
 import { calculateMarketValue } from "./transfers.js";
 import { getRealisticWeeklyWage, getTransferWindowStatus } from "./economy-market.js";
 
+const SOUTH_AMERICAN_LEAGUES = new Set(["bra_1", "bra_2", "arg_1", "arg_2", "col_1", "col_2"]);
+
 export function makeLowballOffer(playerId) {
   const state = store.get();
   const player = state.players?.[playerId];
@@ -126,7 +128,6 @@ export function submitInteractiveOffer(playerId, offeredCash, contractYears = 4)
   const sellerClub = state.clubs[player.clubId]?.name || "Club Vendedor";
   const ratio = offer / Math.max(1, targetPrice);
 
-  // Aceptación directa si ofrece >= 97% (o >= 90% con buen ojeador y azar)
   const acceptThreshold = Math.max(0.88, 0.98 - (scoutLvl - 1) * 0.02);
   if (ratio >= acceptThreshold) {
     const newWage = Math.round(getRealisticWeeklyWage(player) * 1.08);
@@ -157,7 +158,6 @@ export function submitInteractiveOffer(playerId, offeredCash, contractYears = 4)
     return { ok: true, msg: `✅ ¡Traspaso cerrado! ${player.name} firma por ${contractYears} años.` };
   }
 
-  // Contraoferta si ofrece entre 76% y el umbral de aceptación
   if (ratio >= 0.76) {
     const counterPrice = Math.round(((offer + targetPrice * 1.04) / 2) / 100000) * 100000;
     store.update(["inbox"], draft => {
@@ -247,12 +247,12 @@ export function resolveNegotiationCounter(eventId, choiceIdx) {
 }
 
 /**
- * Mercado vivo de IA: traspasos autónomos entre clubes rivales cada jornada
+ * Mercado vivo de IA: traspasos autónomos + exportación de joyas Sub-21 Sudamérica -> Europa
  */
 export function simulateAiMarketActivity() {
   const state = store.get();
   const winStatus = getTransferWindowStatus(state);
-  const triggerChance = winStatus.isDeadlineDay ? 0.78 : 0.34;
+  const triggerChance = winStatus.isDeadlineDay ? 0.82 : 0.38;
   if (Math.random() > triggerChance) return null;
 
   const humanClubIds = new Set([
@@ -265,21 +265,30 @@ export function simulateAiMarketActivity() {
   );
   if (aiClubs.length < 4) return null;
 
+  const euroBuyers = aiClubs.filter(c => !SOUTH_AMERICAN_LEAGUES.has(c.leagueId) && (c.tier ?? 1) === 1);
   const transfersCount = winStatus.isDeadlineDay ? 2 : 1;
   const headlines = [];
 
   store.update(["players", "clubs", "inbox"], draft => {
     for (let i = 0; i < transfersCount; i++) {
-      const buyer = aiClubs[Math.floor(Math.random() * aiClubs.length)];
-      const candidates = Object.values(draft.players || {}).filter(
-        p =>
-          !humanClubIds.has(p.clubId) &&
-          p.clubId !== buyer.id &&
-          p.clubId !== "legend_vault" &&
-          !p.isLoaned &&
-          p.ovr >= 76 &&
-          p.ovr <= Math.min(89, (buyer.ovr || 78) + 4)
-      );
+      // 45% de probabilidad de que un club europeo fiche una joya Sub-21 sudamericana
+      const isSouthAmericanExport = euroBuyers.length > 0 && Math.random() < 0.45;
+      const buyer = isSouthAmericanExport
+        ? euroBuyers[Math.floor(Math.random() * euroBuyers.length)]
+        : aiClubs[Math.floor(Math.random() * aiClubs.length)];
+
+      const candidates = Object.values(draft.players || {}).filter(p => {
+        if (humanClubIds.has(p.clubId) || p.clubId === buyer.id || p.clubId === "legend_vault" || p.isLoaned) {
+          return false;
+        }
+        const sellerClub = draft.clubs[p.clubId];
+        if (isSouthAmericanExport) {
+          const isFromSA = sellerClub && SOUTH_AMERICAN_LEAGUES.has(sellerClub.leagueId);
+          return isFromSA && (p.age || 24) <= 21 && p.ovr >= 73 && p.ovr <= Math.min(87, (buyer.ovr || 78) + 2);
+        }
+        return p.ovr >= 75 && p.ovr <= Math.min(89, (buyer.ovr || 78) + 4);
+      });
+
       if (candidates.length === 0) continue;
 
       const target = candidates[Math.floor(Math.random() * candidates.length)];
@@ -288,18 +297,20 @@ export function simulateAiMarketActivity() {
       if (sellerId !== "free_agent" && sellerSquadCount <= 14) continue;
 
       const fee = calculateMarketValue(target, 1, draft);
-      const sellerName = sellerId === "free_agent" ? "Agente Libre" : (draft.clubs[sellerId]?.name || "Club Europeo");
+      const sellerClubObj = draft.clubs[sellerId];
+      const sellerName = sellerId === "free_agent" ? "Agente Libre" : (sellerClubObj?.name || "Club Internacional");
 
       target.clubId = buyer.id;
       target.starter = false;
       target.contractYears = 4;
 
-      if (sellerId !== "free_agent" && draft.clubs[sellerId]) {
-        draft.clubs[sellerId].budget = (draft.clubs[sellerId].budget || 0) + fee;
+      if (sellerId !== "free_agent" && sellerClubObj) {
+        sellerClubObj.budget = (sellerClubObj.budget || 0) + fee;
       }
 
+      const tag = isSouthAmericanExport ? "🌎✈️🇪🇺 Joya Sub-21" : "🔁 Traspaso";
       headlines.push(
-        `• <b>${target.name}</b> (${target.pos}, OVR ${target.ovr}): <i>${sellerName}</i> → <b>${buyer.name}</b> por <b>${(fee / 1e6).toFixed(1)} M€</b>`
+        `• <b>[${tag}] ${target.name}</b> (${target.pos}, ${target.age}a, OVR ${target.ovr}): <i>${sellerName}</i> → <b>${buyer.name}</b> por <b>${(fee / 1e6).toFixed(1)} M€</b>`
       );
     }
 
@@ -308,9 +319,9 @@ export function simulateAiMarketActivity() {
       draft.inbox.unshift({
         id: `ai_mkt_${Date.now()}`,
         title: winStatus.isDeadlineDay
-          ? "🚨 Boletín Deadline Day: Movimientos Oficiales"
-          : "📰 Mercado Internacional: Fichajes de Rivales",
-        body: `Los clubes europeos siguen reforzándose:<br><br>${headlines.join("<br>")}`,
+          ? "🚨 Boletín Deadline Day: Movimientos Globales"
+          : "📰 Mercado Mundial: Fichajes y Exportación de Talentos",
+        body: `Movimientos destacados en las ligas de Europa, América y Resto del Mundo:<br><br>${headlines.join("<br>")}`,
         date: `Temporada ${draft.season || 1}`,
         resolved: true,
         choices: []
